@@ -100,6 +100,14 @@ const Settings: React.FC = () => {
     setPlatformForm(prev => ({ ...prev, [field]: value }))
   }
 
+  const handleDeletePlatform = (platformId: number) => {
+    const platform = platforms.find(p => p.id === platformId)
+    if (platform && window.confirm(`Are you sure you want to delete the platform "${platform.name}"?`)) {
+      setPlatforms(prev => prev.filter(p => p.id !== platformId))
+      showSuccess('Platform Deleted', `Platform "${platform.name}" has been deleted successfully`)
+    }
+  }
+
   const handlePlatformSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
@@ -147,7 +155,7 @@ const Settings: React.FC = () => {
     setPlatformForm({
       name: '',
       displayName: '',
-      type: 'app',
+      type: activeTab === 'apps' ? 'app' : 'website',
       bundleId: '',
       appName: '',
       downloadUrl: '',
@@ -233,43 +241,112 @@ const Settings: React.FC = () => {
             )}
 
             {/* Platform List */}
-            <div className="mt-6 space-y-3">
-              <h3 className="text-sm font-medium">Configured Platforms</h3>
-              {platforms
-                .filter(p => p.type === activeTab)
-                .map((platform) => (
-                  <div key={platform.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center gap-3">
-                      {platform.type === 'app' ? (
-                        <Smartphone className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Globe className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <div>
-                        <div className="font-medium">{platform.name}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {platform.type === 'app' ? (
-                            <div className="space-y-1">
-                              <div>Bundle ID: {platform.bundleId}</div>
-                              {platform.appName && <div>App Name: {platform.appName}</div>}
-                              {platform.downloadUrl && <div>Download URL: {platform.downloadUrl}</div>}
-                            </div>
-                          ) : (
-                            <div>Base URL: {platform.baseUrl}</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={platform.isActive ? 'success' : 'secondary'}>
-                        {platform.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
-                      <Button variant="outline" size="sm" onClick={() => handleEditPlatform(platform)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </div>
+            <div className="mt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-medium">Configured Platforms</h3>
+                <div className="flex gap-2">
+                  <Badge variant="outline">
+                    {platforms.filter(p => p.type === activeTab).length} {activeTab}
+                  </Badge>
+                </div>
+              </div>
+
+              {platforms.filter(p => p.type === activeTab).length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="mb-4">
+                    {activeTab === 'apps' ? (
+                      <Smartphone className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    ) : (
+                      <Globe className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    )}
                   </div>
-                ))}
+                  <h4 className="text-lg font-medium mb-2">No {activeTab} platforms configured</h4>
+                  <p className="text-sm mb-4">Add your first {activeTab === 'apps' ? 'mobile app' : 'website'} platform to get started</p>
+                  <Button onClick={handleAddPlatform}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add {activeTab === 'apps' ? 'App' : 'Website'} Platform
+                  </Button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-3 font-medium text-muted-foreground">Platform</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Type</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Identifier</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {platforms
+                        .filter(p => p.type === activeTab)
+                        .map((platform) => (
+                          <tr key={platform.id} className="border-b hover:bg-accent/50 transition-colors">
+                            <td className="p-3">
+                              <div className="flex items-center gap-3">
+                                {platform.type === 'app' ? (
+                                  <Smartphone className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Globe className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <div>
+                                  <div className="font-medium">{platform.name}</div>
+                                  {platform.appName && (
+                                    <div className="text-sm text-muted-foreground">App: {platform.appName}</div>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <Badge variant="outline">
+                                {platform.type === 'app' ? 'Mobile App' : 'Website'}
+                              </Badge>
+                            </td>
+                            <td className="p-3">
+                              <div className="text-sm">
+                                {platform.type === 'app' ? (
+                                  <div className="space-y-1">
+                                    <div className="font-mono text-xs">{platform.bundleId}</div>
+                                    {platform.downloadUrl && (
+                                      <div className="text-xs text-muted-foreground truncate max-w-xs">
+                                        {platform.downloadUrl}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-muted-foreground truncate max-w-xs">
+                                    {platform.baseUrl}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <Badge variant={platform.isActive ? 'success' : 'secondary'}>
+                                {platform.isActive ? 'Active' : 'Inactive'}
+                              </Badge>
+                            </td>
+                            <td className="p-3">
+                              <div className="flex gap-2">
+                                <Button variant="outline" size="sm" onClick={() => handleEditPlatform(platform)}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  variant="destructive" 
+                                  size="sm" 
+                                  onClick={() => handleDeletePlatform(platform.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
