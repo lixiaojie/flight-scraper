@@ -290,6 +290,7 @@ const AndroidAutomation: React.FC = () => {
                       <th className="text-left p-3 font-medium text-muted-foreground">Image</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Created</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Latest Start</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
@@ -318,7 +319,12 @@ const AndroidAutomation: React.FC = () => {
                         </td>
                         <td className="p-3">
                           <div className="text-sm text-muted-foreground">
-                            {new Date(container.created_at).toLocaleDateString()}
+                            {new Date(container.created_at).toLocaleString()}
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <div className="text-sm text-muted-foreground">
+                            {container.started_at ? new Date(container.started_at).toLocaleString() : '-'}
                           </div>
                         </td>
                         <td className="p-3">
