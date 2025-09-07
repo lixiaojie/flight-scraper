@@ -61,7 +61,11 @@ const AndroidInterface: React.FC = () => {
   const fetchContainers = async () => {
     try {
       const response = await api.get('/android-automation/containers')
-      setContainers(response.data)
+      // Sort containers by creation date in reverse chronological order (newest first)
+      const sortedContainers = response.data.sort((a: any, b: any) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
+      setContainers(sortedContainers)
     } catch (error: any) {
       console.error('Failed to fetch containers:', error)
       showError('Error', 'Failed to fetch containers')
