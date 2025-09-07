@@ -121,6 +121,15 @@ const Settings: React.FC = () => {
     setPlatformForm(prev => ({ ...prev, [field]: value }))
   }
 
+  // Check if platform name is already taken
+  const isNameTaken = (name: string) => {
+    if (!name.trim()) return false
+    return platforms.some(p => 
+      p.name.toLowerCase() === name.toLowerCase() && 
+      (!editingPlatform || p.id !== editingPlatform.id)
+    )
+  }
+
   const handleDeletePlatform = async (platformId: number) => {
     const platform = platforms.find(p => p.id === platformId)
     if (platform && window.confirm(`Are you sure you want to delete the platform "${platform.name}"?`)) {
@@ -145,6 +154,16 @@ const Settings: React.FC = () => {
     // Validate required fields
     if (!platformForm.name.trim()) {
       showError('Validation Error', 'Platform name is required')
+      return
+    }
+    
+    // Check for duplicate names (excluding current platform if editing)
+    const existingPlatform = platforms.find(p => 
+      p.name.toLowerCase() === platformForm.name.toLowerCase() && 
+      (!editingPlatform || p.id !== editingPlatform.id)
+    )
+    if (existingPlatform) {
+      showError('Validation Error', `A platform with the name "${platformForm.name}" already exists. Please choose a different name.`)
       return
     }
     
@@ -201,7 +220,26 @@ const Settings: React.FC = () => {
 
     } catch (error: any) {
       console.error('Platform operation failed:', error)
-      showError('Error', error.response?.data?.detail || 'Failed to save platform')
+      
+      // Handle specific error cases
+      let errorMessage = 'Failed to save platform'
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail
+        if (typeof detail === 'string') {
+          errorMessage = detail
+        } else if (detail.includes && detail.includes('duplicate key')) {
+          errorMessage = `A platform with the name "${platformForm.name}" already exists. Please choose a different name.`
+        } else {
+          errorMessage = 'Validation error: ' + JSON.stringify(detail)
+        }
+      } else if (error.response?.status === 422) {
+        errorMessage = 'Validation error: Please check all required fields'
+      } else if (error.response?.status === 409) {
+        errorMessage = `A platform with the name "${platformForm.name}" already exists. Please choose a different name.`
+      }
+      
+      showError('Error', errorMessage)
     } finally {
       setIsLoading(false)
     }
@@ -620,7 +658,14 @@ const Settings: React.FC = () => {
                 placeholder="e.g., 12306" 
                 value={platformForm.name}
                 onChange={(e) => handlePlatformFormChange('name', e.target.value)}
+                className={isNameTaken(platformForm.name) ? 'border-red-500 focus:border-red-500' : ''}
+                required
               />
+              {isNameTaken(platformForm.name) && (
+                <p className="text-sm text-red-500">
+                  This name is already taken. Please choose a different name.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Display Name</label>
@@ -676,7 +721,10 @@ const Settings: React.FC = () => {
             <Button type="button" variant="outline" onClick={() => setShowPlatformModal(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button 
+              type="submit" 
+              disabled={isLoading || isNameTaken(platformForm.name)}
+            >
               {isLoading ? 'Saving...' : (editingPlatform ? 'Update Platform' : 'Add Platform')}
             </Button>
           </div>
