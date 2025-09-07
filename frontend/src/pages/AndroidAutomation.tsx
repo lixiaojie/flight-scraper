@@ -187,6 +187,61 @@ const AndroidAutomation: React.FC = () => {
     }
   }
 
+  // View container details
+  const viewContainer = async (containerId: string) => {
+    try {
+      // Get container details
+      const containerResponse = await api.get(`/android-automation/containers`)
+      const container = containerResponse.data.find((c: any) => c.container_id === containerId)
+      
+      if (!container) {
+        showError('Error', 'Container not found')
+        return
+      }
+
+      // Get container resources
+      let resources = null
+      try {
+        const resourcesResponse = await api.get(`/android-automation/containers/${containerId}/resources`)
+        resources = resourcesResponse.data
+      } catch (error) {
+        console.log('Could not fetch container resources:', error)
+      }
+
+      // Show container details in a modal or alert for now
+      const details = {
+        'Container ID': container.container_id,
+        'Container Name': container.container_name,
+        'Image': `${container.image_name}:${container.image_tag}`,
+        'Status': container.status,
+        'Created': new Date(container.created_at).toLocaleString(),
+        'Started': container.started_at ? new Date(container.started_at).toLocaleString() : 'Never',
+        'Stopped': container.stopped_at ? new Date(container.stopped_at).toLocaleString() : 'N/A',
+        'CPU Limit': container.cpu_limit || 'Not set',
+        'Memory Limit': container.memory_limit || 'Not set',
+        'Host Port': container.host_port || 'Not set',
+        'Container Port': container.container_port || 'Not set'
+      }
+
+      if (resources) {
+        details['Current CPU Usage'] = resources.cpu_usage || 'N/A'
+        details['Current Memory Usage'] = resources.memory_usage || 'N/A'
+        details['Current Disk Usage'] = resources.disk_usage || 'N/A'
+        details['Uptime'] = resources.uptime || 'N/A'
+      }
+
+      const detailsText = Object.entries(details)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n')
+
+      alert(`Container Details:\n\n${detailsText}`)
+      
+    } catch (error: any) {
+      console.error('Failed to view container:', error)
+      showError('Error', error.response?.data?.detail || 'Failed to view container details')
+    }
+  }
+
   // Load data on component mount
   useEffect(() => {
     fetchPlatforms()
@@ -329,6 +384,14 @@ const AndroidAutomation: React.FC = () => {
                         </td>
                         <td className="p-3">
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => viewContainer(container.container_id)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
                             {container.status === 'running' ? (
                               <Button
                                 variant="destructive"

@@ -146,10 +146,41 @@ async def get_container_resources(
 ):
     """Get container resource usage"""
     try:
-        service = AndroidAutomationService(db)
-        resources = service.get_container_resources(container_id)
-        return ContainerResourceInfo(**resources)
+        # Check if we should use mock service
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
         
+        if use_mock:
+            # Mock mode - return mock resource data
+            from app.models.android_automation import AndroidContainer
+            
+            container = db.query(AndroidContainer).filter(
+                AndroidContainer.container_id == container_id
+            ).first()
+            
+            if not container:
+                raise HTTPException(status_code=404, detail="Container not found")
+            
+            # Return mock resource data
+            mock_resources = {
+                "container_id": container_id,
+                "cpu_usage": "15.2%" if container.status == "running" else "0%",
+                "memory_usage": "2.1GB / 4GB" if container.status == "running" else "0GB / 4GB",
+                "disk_usage": "8.5GB / 20GB",
+                "network_usage": "1.2MB/s" if container.status == "running" else "0MB/s",
+                "uptime": "2h 15m" if container.status == "running" else "0s",
+                "status": container.status
+            }
+            
+            return ContainerResourceInfo(**mock_resources)
+        else:
+            # Real mode - use actual service
+            service = AndroidAutomationService(db)
+            resources = service.get_container_resources(container_id)
+            return ContainerResourceInfo(**resources)
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get container resources: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
