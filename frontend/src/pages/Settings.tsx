@@ -22,7 +22,6 @@ import { useToastHelpers } from '../lib/toast'
 import api, { endpoints } from '../lib/api'
 
 const Settings: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'apps' | 'websites'>('apps')
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [editingAccount, setEditingAccount] = useState<any>(null)
   const [showPlatformModal, setShowPlatformModal] = useState(false)
@@ -100,7 +99,7 @@ const Settings: React.FC = () => {
     setPlatformForm({
       name: '',
       displayName: '',
-      type: activeTab === 'apps' ? 'app' : 'website',
+      type: 'app', // Default to app, user can change in modal
       bundleId: '',
       appName: '',
       downloadUrl: '',
@@ -216,7 +215,7 @@ const Settings: React.FC = () => {
       setPlatformForm({
         name: '',
         displayName: '',
-        type: activeTab === 'apps' ? 'app' : 'website',
+        type: 'app', // Default to app
         bundleId: '',
         appName: '',
         downloadUrl: '',
@@ -274,58 +273,17 @@ const Settings: React.FC = () => {
               Configure platforms for flight data scraping
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            {/* Tabs */}
-            <div className="flex space-x-1 mb-6">
-              <button
-                onClick={() => setActiveTab('apps')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'apps'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Smartphone className="h-4 w-4 mr-2 inline" />
-                Apps
-              </button>
-              <button
-                onClick={() => setActiveTab('websites')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === 'websites'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Globe className="h-4 w-4 mr-2 inline" />
-                Websites
-              </button>
-            </div>
-
-            {/* Apps Tab */}
-            {activeTab === 'apps' && (
-              <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Configure mobile app platforms for flight data scraping
-                </div>
-                <Button onClick={handleAddPlatform}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add App Platform
-                </Button>
-              </div>
-            )}
-
-            {/* Websites Tab */}
-            {activeTab === 'websites' && (
-              <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Configure website platforms for flight data scraping
-                </div>
-                <Button onClick={handleAddPlatform}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Website Platform
-                </Button>
-              </div>
-            )}
+                <CardContent>
+                  {/* Add Platform Button */}
+                  <div className="space-y-4 mb-6">
+                    <div className="text-sm text-muted-foreground">
+                      Configure platforms for flight data scraping (mobile apps and websites)
+                    </div>
+                    <Button onClick={handleAddPlatform}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Platform
+                    </Button>
+                  </div>
 
             {/* Platform List */}
             <div className="mt-6">
@@ -333,7 +291,13 @@ const Settings: React.FC = () => {
                 <h3 className="text-sm font-medium">Configured Platforms</h3>
                 <div className="flex gap-2">
                   <Badge variant="outline">
-                    {platforms.filter(p => p.type === activeTab).length} {activeTab}
+                    {platforms.filter(p => p.type === 'app').length} Apps
+                  </Badge>
+                  <Badge variant="outline">
+                    {platforms.filter(p => p.type === 'website').length} Websites
+                  </Badge>
+                  <Badge variant="outline">
+                    {platforms.length} Total
                   </Badge>
                 </div>
               </div>
@@ -343,20 +307,16 @@ const Settings: React.FC = () => {
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
                   <p>Loading platforms...</p>
                 </div>
-              ) : platforms.filter(p => p.type === activeTab).length === 0 ? (
+              ) : platforms.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <div className="mb-4">
-                    {activeTab === 'apps' ? (
-                      <Smartphone className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    ) : (
-                      <Globe className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    )}
+                    <SettingsIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   </div>
-                  <h4 className="text-lg font-medium mb-2">No {activeTab} platforms configured</h4>
-                  <p className="text-sm mb-4">Add your first {activeTab === 'apps' ? 'mobile app' : 'website'} platform to get started</p>
+                  <h4 className="text-lg font-medium mb-2">No platforms configured</h4>
+                  <p className="text-sm mb-4">Add your first platform to get started</p>
                   <Button onClick={handleAddPlatform}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add {activeTab === 'apps' ? 'App' : 'Website'} Platform
+                    Add Platform
                   </Button>
                 </div>
               ) : (
@@ -372,9 +332,7 @@ const Settings: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {platforms
-                        .filter(p => p.type === activeTab)
-                        .map((platform) => (
+                      {platforms.map((platform) => (
                           <tr key={platform.id} className="border-b hover:bg-accent/50 transition-colors">
                             <td className="p-3">
                               <div className="flex items-center gap-3">
@@ -682,6 +640,17 @@ const Settings: React.FC = () => {
                 onChange={(e) => handlePlatformFormChange('displayName', e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Platform Type *</label>
+            <Select 
+              value={platformForm.type}
+              onChange={(e) => handlePlatformFormChange('type', e.target.value)}
+            >
+              <option value="app">Mobile App</option>
+              <option value="website">Website</option>
+            </Select>
           </div>
 
           {platformForm.type === 'app' ? (
