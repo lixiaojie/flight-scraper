@@ -3,7 +3,7 @@ Main API router configuration
 """
 
 from fastapi import APIRouter
-from app.api.endpoints import tasks, platforms, dashboard, auth, comparison, android_automation
+from app.api.endpoints import tasks, platforms, dashboard, auth, comparison, android_automation, ios_automation
 
 # Create main API router
 api_router = APIRouter()
@@ -43,4 +43,10 @@ api_router.include_router(
     android_automation.router,
     prefix="/android-automation",
     tags=["android-automation"]
+)
+
+api_router.include_router(
+    ios_automation.router,
+    prefix="/ios-automation",
+    tags=["ios-automation"]
 )

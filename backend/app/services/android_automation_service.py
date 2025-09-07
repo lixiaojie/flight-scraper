@@ -155,7 +155,7 @@ class AndroidAutomationService:
         # Create new container
         container_name = f"android-automation-{session.session_id[:8]}"
         image_name = "budtmo/docker-android"
-        image_tag = "api_30_x86"
+        image_tag = "latest"
         
         # Start container using Docker command
         container_id = self._start_docker_container(container_name, image_name, image_tag)
@@ -228,9 +228,17 @@ class AndroidAutomationService:
             result = subprocess.run(check_cmd, capture_output=True, text=True)
             
             if "Up" in result.stdout:
-                # Wait a bit more for Android to fully boot
-                time.sleep(30)
-                logger.info(f"Container {container.container_id} is ready")
+                # Wait for Android emulator to fully boot and be available via ADB
+                logger.info(f"Container is up, waiting for Android emulator to be ready...")
+                for i in range(60):  # Wait up to 5 minutes
+                    adb_cmd = ["docker", "exec", container.container_name, "adb", "devices"]
+                    adb_result = subprocess.run(adb_cmd, capture_output=True, text=True)
+                    if "device" in adb_result.stdout and "List of devices" in adb_result.stdout:
+                        logger.info(f"Android emulator is ready after {i*5} seconds")
+                        return
+                    time.sleep(5)
+                
+                logger.warning(f"Android emulator may not be fully ready, but proceeding...")
                 return
             
             time.sleep(10)
@@ -262,11 +270,11 @@ class AndroidAutomationService:
         # Install APK into container
         install_cmd = [
             "docker", "exec", session.container_name,
-            "adb", "install", "-r", f"/data/local/tmp/{apk_filename}"
+            "adb", "install", "-r", f"/tmp/{apk_filename}"
         ]
         
         # Copy APK to container
-        copy_cmd = ["docker", "cp", apk_path, f"{session.container_name}:/data/local/tmp/{apk_filename}"]
+        copy_cmd = ["docker", "cp", apk_path, f"{session.container_name}:/tmp/{apk_filename}"]
         result = subprocess.run(copy_cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception(f"Failed to copy APK to container: {result.stderr}")
@@ -317,7 +325,7 @@ class AndroidAutomationService:
         # Take screenshot
         screenshot_cmd = [
             "docker", "exec", container.container_name,
-            "adb", "shell", "screencap", "-p", "/data/local/tmp/screenshot.png"
+            "adb", "shell", "screencap", "-p", "/tmp/screenshot.png"
         ]
         
         result = subprocess.run(screenshot_cmd, capture_output=True, text=True)
@@ -325,7 +333,7 @@ class AndroidAutomationService:
             raise Exception(f"Failed to capture screenshot: {result.stderr}")
         
         # Copy screenshot from container
-        copy_cmd = ["docker", "cp", f"{container.container_name}:/data/local/tmp/screenshot.png", screenshot_path]
+        copy_cmd = ["docker", "cp", f"{container.container_name}:/tmp/screenshot.png", screenshot_path]
         result = subprocess.run(copy_cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise Exception(f"Failed to copy screenshot from container: {result.stderr}")

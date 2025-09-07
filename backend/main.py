@@ -12,6 +12,9 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.routes import api_router
 
+# Import models to ensure they are registered
+from app.models import user, platform, task, flight_data, android_automation, ios_automation
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

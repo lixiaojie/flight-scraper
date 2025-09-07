@@ -39,7 +39,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=your-secret-key-change-in-production
       - ENVIRONMENT=development
-      - USE_MOCK_ANDROID_AUTOMATION=true
+      - USE_MOCK_ANDROID_AUTOMATION=false
     ports:
       - "8000:8000"
     depends_on:
