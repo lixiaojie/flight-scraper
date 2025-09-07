@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Moon, Sun, LogOut, User, Home, ClipboardList, Settings, Smartphone } from 'lucide-react'
+import { Moon, Sun, LogOut, User, Home, ClipboardList, Settings, Smartphone, Monitor } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './ui/Button'
@@ -15,6 +15,7 @@ const Header: React.FC = () => {
     { name: 'Home', href: '/', icon: Home },
     { name: 'Task Management', href: '/tasks', icon: ClipboardList },
     { name: 'Android Automation', href: '/android-automation', icon: Smartphone },
+    { name: 'Android Interface', href: '/android-interface', icon: Monitor },
     { name: 'System Config', href: '/settings', icon: Settings },
   ]
 
