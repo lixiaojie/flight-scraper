@@ -126,6 +126,7 @@ const AndroidAutomation: React.FC = () => {
       showSuccess('Automation Started', `Session ${response.data.session_id} started successfully`)
       setShowStartModal(false)
       fetchSessions()
+      fetchContainers()
     } catch (error: any) {
       console.error('Failed to start automation:', error)
       showError('Error', error.response?.data?.detail || 'Failed to start automation')
