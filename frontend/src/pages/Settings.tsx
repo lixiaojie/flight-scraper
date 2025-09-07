@@ -49,6 +49,7 @@ const Settings: React.FC = () => {
     try {
       setIsLoading(true)
       const response = await api.get(endpoints.platforms.list)
+      
       // Map API response to frontend format
       const mappedPlatforms = response.data.map((platform: any) => ({
         ...platform,
