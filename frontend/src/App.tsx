@@ -9,6 +9,7 @@ import TaskDetails from './pages/TaskDetails'
 import CreateTask from './pages/CreateTask'
 import Platforms from './pages/Platforms'
 import Settings from './pages/Settings'
+import AndroidAutomation from './pages/AndroidAutomation'
 import Login from './pages/Login'
 import ProtectedRoute from './components/ProtectedRoute'
 import { Toaster, ToastProvider } from './components/ui/Toaster'
@@ -42,9 +43,10 @@ function App() {
                             <Route path="/" element={<Home />} />
                             <Route path="/tasks" element={<Tasks />} />
                             <Route path="/tasks/create" element={<CreateTask />} />
-                            <Route path="/tasks/:id" element={<TaskDetails />} />
-                            <Route path="/platforms" element={<Platforms />} />
-                            <Route path="/settings" element={<Settings />} />
+                                   <Route path="/tasks/:id" element={<TaskDetails />} />
+                                   <Route path="/platforms" element={<Platforms />} />
+                                   <Route path="/settings" element={<Settings />} />
+                                   <Route path="/android-automation" element={<AndroidAutomation />} />
                           </Routes>
                         </Layout>
                       </ProtectedRoute>

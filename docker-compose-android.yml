@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: flight_scraper
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Celery
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/flight_scraper
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=production
+    volumes:
+      - ./backend:/app
+      - android_screenshots:/app/screenshots
+      - android_downloads:/app/downloads
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/flight_scraper
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=production
+    volumes:
+      - ./backend:/app
+      - android_screenshots:/app/screenshots
+      - android_downloads:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery worker --loglevel=info
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/flight_scraper
+      - REDIS_URL=redis://redis:6379
+      - ENVIRONMENT=production
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery beat --loglevel=info
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  # Android Emulator Container (for testing)
+  android-emulator:
+    image: budtmo/docker-android:api_30_x86
+    environment:
+      - EMULATOR_DEVICE=Samsung Galaxy S10
+      - WEB_VNC=true
+      - VNC_PASSWORD=password
+    ports:
+      - "5555:5555"  # ADB port
+      - "6080:6080"  # VNC port
+    volumes:
+      - android_data:/root/.android
+    privileged: true
+    devices:
+      - /dev/kvm:/dev/kvm
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - android_network
+
+  # Nginx for serving screenshots and static files
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - android_screenshots:/usr/share/nginx/html/screenshots
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  android_screenshots:
+  android_downloads:
+  android_data:
+
+networks:
+  android_network:
+    driver: bridge

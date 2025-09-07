@@ -44,6 +44,7 @@ class Platform(Base):
     
     # Relationships
     accounts = relationship("Account", back_populates="platform", cascade="all, delete-orphan")
+    automation_sessions = relationship("AndroidAutomationSession", back_populates="platform", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Platform(id={self.id}, name='{self.name}', type='{self.platform_type}')>"
