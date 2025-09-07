@@ -39,6 +39,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=your-secret-key-change-in-production
       - ENVIRONMENT=development
+      - USE_MOCK_ANDROID_AUTOMATION=true
     ports:
       - "8000:8000"
     depends_on:
@@ -52,6 +53,7 @@ services:
       - uploads:/app/uploads
       - logs:/app/logs
       - android_downloads:/app/downloads
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for Android automation
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   # Celery Worker

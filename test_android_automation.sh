@@ -119,10 +119,10 @@ echo ""
 echo "📱 Testing Android Automation API"
 echo "---------------------------------"
 
-# Test automation start (will fail due to Docker not being available in container, but should return proper error)
-test_post_endpoint "Start Automation (Expected to fail)" \
+# Test automation start (now works with mock service)
+test_post_endpoint "Start Automation (Mock Mode)" \
     "http://localhost:8000/api/v1/android-automation/start" \
-    '{"platform_id": 1, "wait_time": 10, "capture_screenshot": true}' \
+    '{"platform_id": 1, "wait_time": 5, "capture_screenshot": true}' \
     "200"
 
 echo ""
@@ -189,9 +189,9 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo "✅ Frontend is accessible"
     echo "✅ Platform configuration is correct"
     echo ""
-    echo "📝 Note: Docker-based automation will fail in this environment"
-    echo "   because Docker is not available inside the backend container."
-    echo "   This is expected and will work correctly in a proper deployment."
+    echo "📝 Note: Android automation is running in mock mode for development."
+    echo "   This simulates the full automation workflow without requiring Docker."
+    echo "   For production deployment, set USE_MOCK_ANDROID_AUTOMATION=false."
     exit 0
 else
     echo ""

@@ -171,6 +171,22 @@ const AndroidAutomation: React.FC = () => {
     }
   }
 
+  // Delete container
+  const deleteContainer = async (containerId: string) => {
+    if (!confirm('Are you sure you want to delete this container? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      await api.delete(`/android-automation/containers/${containerId}`)
+      showSuccess('Container Deleted', 'Container deleted successfully')
+      fetchContainers()
+    } catch (error: any) {
+      console.error('Failed to delete container:', error)
+      showError('Error', error.response?.data?.detail || 'Failed to delete container')
+    }
+  }
+
   // Load data on component mount
   useEffect(() => {
     fetchPlatforms()
@@ -309,20 +325,32 @@ const AndroidAutomation: React.FC = () => {
                           <div className="flex gap-2">
                             {container.status === 'running' ? (
                               <Button
-                                variant="outline"
+                                variant="destructive"
                                 size="sm"
                                 onClick={() => stopContainer(container.container_id)}
                               >
-                                <Square className="h-4 w-4" />
+                                <Square className="h-4 w-4 mr-1" />
+                                Stop
                               </Button>
                             ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => startContainer(container.container_id)}
-                              >
-                                <Play className="h-4 w-4" />
-                              </Button>
+                              <>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => startContainer(container.container_id)}
+                                >
+                                  <Play className="h-4 w-4 mr-1" />
+                                  Start
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => deleteContainer(container.container_id)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                  Delete
+                                </Button>
+                              </>
                             )}
                           </div>
                         </td>

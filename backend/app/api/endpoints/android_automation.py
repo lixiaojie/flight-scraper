@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.core.database import get_db
 from app.services.android_automation_service import AndroidAutomationService
+from app.services.mock_android_automation_service import MockAndroidAutomationService
 from app.schemas.android_automation import (
     AutomationRequest, AutomationResponse, AndroidAutomationSessionResponse,
     AndroidContainerResponse, ContainerResourceInfo
@@ -26,7 +27,16 @@ async def start_automation(
 ):
     """Start Android automation process"""
     try:
-        service = AndroidAutomationService(db)
+        # Check if we should use mock service (when Docker is not available)
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
+        
+        if use_mock:
+            service = MockAndroidAutomationService(db)
+            logger.info("Using mock Android automation service")
+        else:
+            service = AndroidAutomationService(db)
+            logger.info("Using real Android automation service")
         
         # Start automation in background
         result = service.start_automation(request)
@@ -89,7 +99,17 @@ async def cleanup_automation_session(
 ):
     """Cleanup automation session and container"""
     try:
-        service = AndroidAutomationService(db)
+        # Check if we should use mock service (when Docker is not available)
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
+        
+        if use_mock:
+            service = MockAndroidAutomationService(db)
+            logger.info("Using mock Android automation service for cleanup")
+        else:
+            service = AndroidAutomationService(db)
+            logger.info("Using real Android automation service for cleanup")
+        
         success = service.cleanup_session(session_id)
         
         if not success:
@@ -142,30 +162,55 @@ async def stop_container(
 ):
     """Stop Android container"""
     try:
-        import subprocess
+        # Check if we should use mock service
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
         
-        # Stop container
-        stop_cmd = ["docker", "stop", container_id]
-        result = subprocess.run(stop_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            raise HTTPException(status_code=400, detail=f"Failed to stop container: {result.stderr}")
-        
-        # Update database
-        from app.models.android_automation import AndroidContainer
-        from app.schemas.android_automation import ContainerStatus
-        from datetime import datetime
-        
-        container = db.query(AndroidContainer).filter(
-            AndroidContainer.container_id == container_id
-        ).first()
-        
-        if container:
+        if use_mock:
+            # Mock mode - just update database
+            from app.models.android_automation import AndroidContainer
+            from app.schemas.android_automation import ContainerStatus
+            from datetime import datetime
+            
+            container = db.query(AndroidContainer).filter(
+                AndroidContainer.container_id == container_id
+            ).first()
+            
+            if not container:
+                raise HTTPException(status_code=404, detail="Container not found")
+            
             container.status = ContainerStatus.STOPPED
             container.stopped_at = datetime.utcnow()
             db.commit()
-        
-        return {"message": "Container stopped successfully"}
+            
+            logger.info(f"Mock container {container_id} stopped")
+            return {"message": "Container stopped successfully (mock mode)"}
+        else:
+            # Real mode - use Docker
+            import subprocess
+            
+            # Stop container
+            stop_cmd = ["docker", "stop", container_id]
+            result = subprocess.run(stop_cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise HTTPException(status_code=400, detail=f"Failed to stop container: {result.stderr}")
+            
+            # Update database
+            from app.models.android_automation import AndroidContainer
+            from app.schemas.android_automation import ContainerStatus
+            from datetime import datetime
+            
+            container = db.query(AndroidContainer).filter(
+                AndroidContainer.container_id == container_id
+            ).first()
+            
+            if container:
+                container.status = ContainerStatus.STOPPED
+                container.stopped_at = datetime.utcnow()
+                db.commit()
+            
+            return {"message": "Container stopped successfully"}
         
     except HTTPException:
         raise
@@ -181,35 +226,144 @@ async def start_container(
 ):
     """Start Android container"""
     try:
-        import subprocess
+        # Check if we should use mock service
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
         
-        # Start container
-        start_cmd = ["docker", "start", container_id]
-        result = subprocess.run(start_cmd, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            raise HTTPException(status_code=400, detail=f"Failed to start container: {result.stderr}")
-        
-        # Update database
-        from app.models.android_automation import AndroidContainer
-        from app.schemas.android_automation import ContainerStatus
-        from datetime import datetime
-        
-        container = db.query(AndroidContainer).filter(
-            AndroidContainer.container_id == container_id
-        ).first()
-        
-        if container:
+        if use_mock:
+            # Mock mode - just update database
+            from app.models.android_automation import AndroidContainer
+            from app.schemas.android_automation import ContainerStatus
+            from datetime import datetime
+            
+            container = db.query(AndroidContainer).filter(
+                AndroidContainer.container_id == container_id
+            ).first()
+            
+            if not container:
+                raise HTTPException(status_code=404, detail="Container not found")
+            
             container.status = ContainerStatus.RUNNING
             container.started_at = datetime.utcnow()
+            container.stopped_at = None
             db.commit()
-        
-        return {"message": "Container started successfully"}
+            
+            logger.info(f"Mock container {container_id} started")
+            return {"message": "Container started successfully (mock mode)"}
+        else:
+            # Real mode - use Docker
+            import subprocess
+            
+            # Start container
+            start_cmd = ["docker", "start", container_id]
+            result = subprocess.run(start_cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise HTTPException(status_code=400, detail=f"Failed to start container: {result.stderr}")
+            
+            # Update database
+            from app.models.android_automation import AndroidContainer
+            from app.schemas.android_automation import ContainerStatus
+            from datetime import datetime
+            
+            container = db.query(AndroidContainer).filter(
+                AndroidContainer.container_id == container_id
+            ).first()
+            
+            if container:
+                container.status = ContainerStatus.RUNNING
+                container.started_at = datetime.utcnow()
+                container.stopped_at = None
+                db.commit()
+            
+            return {"message": "Container started successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to start container {container_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/containers/{container_id}")
+async def delete_container(
+    container_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete Android container"""
+    try:
+        # Check if we should use mock service
+        import os
+        use_mock = os.environ.get("USE_MOCK_ANDROID_AUTOMATION", "false").lower() == "true"
+        
+        # First, check if container exists and get its status
+        from app.models.android_automation import AndroidContainer
+        
+        container = db.query(AndroidContainer).filter(
+            AndroidContainer.container_id == container_id
+        ).first()
+        
+        if not container:
+            raise HTTPException(status_code=404, detail="Container not found")
+        
+        # Only allow deletion of stopped containers
+        if container.status == "running":
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete running container. Please stop it first."
+            )
+        
+        if use_mock:
+            # Mock mode - just delete from database
+            # Also clean up any associated sessions
+            from app.models.android_automation import AndroidAutomationSession
+            
+            # Find and delete associated sessions
+            sessions = db.query(AndroidAutomationSession).filter(
+                AndroidAutomationSession.container_id == container_id
+            ).all()
+            
+            for session in sessions:
+                db.delete(session)
+            
+            # Delete the container
+            db.delete(container)
+            db.commit()
+            
+            logger.info(f"Mock container {container_id} deleted along with {len(sessions)} associated sessions")
+            return {"message": f"Container deleted successfully (mock mode). Removed {len(sessions)} associated sessions."}
+        else:
+            # Real mode - use Docker to remove container
+            import subprocess
+            
+            # Remove container
+            remove_cmd = ["docker", "rm", "-f", container_id]
+            result = subprocess.run(remove_cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                raise HTTPException(status_code=400, detail=f"Failed to delete container: {result.stderr}")
+            
+            # Clean up associated sessions
+            from app.models.android_automation import AndroidAutomationSession
+            
+            sessions = db.query(AndroidAutomationSession).filter(
+                AndroidAutomationSession.container_id == container_id
+            ).all()
+            
+            for session in sessions:
+                db.delete(session)
+            
+            # Delete the container from database
+            db.delete(container)
+            db.commit()
+            
+            logger.info(f"Container {container_id} deleted along with {len(sessions)} associated sessions")
+            return {"message": f"Container deleted successfully. Removed {len(sessions)} associated sessions."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete container {container_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
