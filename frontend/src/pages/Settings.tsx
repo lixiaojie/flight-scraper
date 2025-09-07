@@ -23,12 +23,26 @@ const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'apps' | 'websites'>('apps')
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [editingAccount, setEditingAccount] = useState<any>(null)
+  const [showPlatformModal, setShowPlatformModal] = useState(false)
+  const [editingPlatform, setEditingPlatform] = useState<any>(null)
+  
+  // Platform form state
+  const [platformForm, setPlatformForm] = useState({
+    name: '',
+    displayName: '',
+    type: 'app' as 'app' | 'website',
+    bundleId: '',
+    appName: '',
+    downloadUrl: '',
+    baseUrl: ''
+  })
 
   // Mock data
   const [platforms] = useState([
     { id: 1, name: 'Expedia', type: 'website', baseUrl: 'https://expedia.com', isActive: true },
     { id: 2, name: 'Kayak', type: 'website', baseUrl: 'https://kayak.com', isActive: true },
     { id: 3, name: 'Expedia App', type: 'app', bundleId: 'com.expedia.app', isActive: false },
+    { id: 4, name: '12306', type: 'app', bundleId: 'com.chinarailway.globalticketing', appName: '12306', downloadUrl: 'https://dynamic.12306.cn/otn/appdownload/12306v5.9.4.5.apk', isActive: true },
   ])
 
   const [accounts] = useState([
@@ -50,6 +64,38 @@ const Settings: React.FC = () => {
   const handleEditAccount = (account: any) => {
     setEditingAccount(account)
     setShowAccountModal(true)
+  }
+
+  const handleAddPlatform = () => {
+    setPlatformForm({
+      name: '',
+      displayName: '',
+      type: activeTab === 'apps' ? 'app' : 'website',
+      bundleId: '',
+      appName: '',
+      downloadUrl: '',
+      baseUrl: ''
+    })
+    setEditingPlatform(null)
+    setShowPlatformModal(true)
+  }
+
+  const handleEditPlatform = (platform: any) => {
+    setPlatformForm({
+      name: platform.name,
+      displayName: platform.name,
+      type: platform.type,
+      bundleId: platform.bundleId || '',
+      appName: platform.appName || '',
+      downloadUrl: platform.downloadUrl || '',
+      baseUrl: platform.baseUrl || ''
+    })
+    setEditingPlatform(platform)
+    setShowPlatformModal(true)
+  }
+
+  const handlePlatformFormChange = (field: string, value: string) => {
+    setPlatformForm(prev => ({ ...prev, [field]: value }))
   }
 
   return (
@@ -104,11 +150,10 @@ const Settings: React.FC = () => {
             {/* Apps Tab */}
             {activeTab === 'apps' && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Bundle ID</label>
-                  <Input placeholder="e.g., com.expedia.app" />
+                <div className="text-sm text-muted-foreground">
+                  Configure mobile app platforms for flight data scraping
                 </div>
-                <Button>
+                <Button onClick={handleAddPlatform}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add App Platform
                 </Button>
@@ -118,11 +163,10 @@ const Settings: React.FC = () => {
             {/* Websites Tab */}
             {activeTab === 'websites' && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Base URL</label>
-                  <Input placeholder="e.g., https://expedia.com" />
+                <div className="text-sm text-muted-foreground">
+                  Configure website platforms for flight data scraping
                 </div>
-                <Button>
+                <Button onClick={handleAddPlatform}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Website Platform
                 </Button>
@@ -145,7 +189,15 @@ const Settings: React.FC = () => {
                       <div>
                         <div className="font-medium">{platform.name}</div>
                         <div className="text-sm text-muted-foreground">
-                          {platform.type === 'app' ? platform.bundleId : platform.baseUrl}
+                          {platform.type === 'app' ? (
+                            <div className="space-y-1">
+                              <div>Bundle ID: {platform.bundleId}</div>
+                              {platform.appName && <div>App Name: {platform.appName}</div>}
+                              {platform.downloadUrl && <div>Download URL: {platform.downloadUrl}</div>}
+                            </div>
+                          ) : (
+                            <div>Base URL: {platform.baseUrl}</div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -153,7 +205,7 @@ const Settings: React.FC = () => {
                       <Badge variant={platform.isActive ? 'success' : 'secondary'}>
                         {platform.isActive ? 'Active' : 'Inactive'}
                       </Badge>
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => handleEditPlatform(platform)}>
                         <Edit className="h-4 w-4" />
                       </Button>
                     </div>
@@ -365,6 +417,84 @@ const Settings: React.FC = () => {
             </Button>
             <Button>
               {editingAccount ? 'Update Account' : 'Add Account'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Platform Modal */}
+      <Modal
+        isOpen={showPlatformModal}
+        onClose={() => setShowPlatformModal(false)}
+        title={editingPlatform ? 'Edit Platform' : 'Add New Platform'}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Platform Name</label>
+              <Input 
+                placeholder="e.g., 12306" 
+                value={platformForm.name}
+                onChange={(e) => handlePlatformFormChange('name', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Display Name</label>
+              <Input 
+                placeholder="e.g., 12306 Railway" 
+                value={platformForm.displayName}
+                onChange={(e) => handlePlatformFormChange('displayName', e.target.value)}
+              />
+            </div>
+          </div>
+
+          {platformForm.type === 'app' ? (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Bundle ID *</label>
+                <Input 
+                  placeholder="e.g., com.chinarailway.globalticketing" 
+                  value={platformForm.bundleId}
+                  onChange={(e) => handlePlatformFormChange('bundleId', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">App Name</label>
+                <Input 
+                  placeholder="e.g., 12306" 
+                  value={platformForm.appName}
+                  onChange={(e) => handlePlatformFormChange('appName', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Download URL</label>
+                <Input 
+                  placeholder="e.g., https://dynamic.12306.cn/otn/appdownload/12306v5.9.4.5.apk" 
+                  value={platformForm.downloadUrl}
+                  onChange={(e) => handlePlatformFormChange('downloadUrl', e.target.value)}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Base URL *</label>
+              <Input 
+                placeholder="e.g., https://expedia.com" 
+                value={platformForm.baseUrl}
+                onChange={(e) => handlePlatformFormChange('baseUrl', e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="outline" onClick={() => setShowPlatformModal(false)}>
+              Cancel
+            </Button>
+            <Button>
+              {editingPlatform ? 'Update Platform' : 'Add Platform'}
             </Button>
           </div>
         </div>

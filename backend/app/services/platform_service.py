@@ -32,20 +32,20 @@ class PlatformService:
             query = query.filter(Platform.is_active == is_active)
         
         platforms = query.order_by(Platform.name).all()
-        return [PlatformResponse.from_orm(platform) for platform in platforms]
+        return [PlatformResponse.model_validate(platform) for platform in platforms]
     
     async def create_platform(self, platform_data: PlatformCreate) -> PlatformResponse:
         """Create a new platform"""
-        platform = Platform(**platform_data.dict())
+        platform = Platform(**platform_data.model_dump())
         self.db.add(platform)
         self.db.commit()
         self.db.refresh(platform)
-        return PlatformResponse.from_orm(platform)
+        return PlatformResponse.model_validate(platform)
     
     async def get_platform_by_id(self, platform_id: int) -> Optional[PlatformResponse]:
         """Get a platform by ID"""
         platform = self.db.query(Platform).filter(Platform.id == platform_id).first()
-        return PlatformResponse.from_orm(platform) if platform else None
+        return PlatformResponse.model_validate(platform) if platform else None
     
     async def update_platform(self, platform_id: int, platform_data: PlatformUpdate) -> Optional[PlatformResponse]:
         """Update a platform"""
@@ -53,7 +53,7 @@ class PlatformService:
         if not platform:
             return None
         
-        update_data = platform_data.dict(exclude_unset=True)
+        update_data = platform_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(platform, field, value)
         
@@ -75,7 +75,7 @@ class PlatformService:
     async def get_platform_accounts(self, platform_id: int) -> List[AccountResponse]:
         """Get accounts for a platform"""
         accounts = self.db.query(Account).filter(Account.platform_id == platform_id).all()
-        return [AccountResponse.from_orm(account) for account in accounts]
+        return [AccountResponse.model_validate(account) for account in accounts]
     
     async def create_account(self, platform_id: int, account_data: AccountCreate) -> AccountResponse:
         """Create a new account for a platform"""
@@ -95,12 +95,12 @@ class PlatformService:
         self.db.add(account)
         self.db.commit()
         self.db.refresh(account)
-        return AccountResponse.from_orm(account)
+        return AccountResponse.model_validate(account)
     
     async def get_account_by_id(self, account_id: int) -> Optional[AccountResponse]:
         """Get an account by ID"""
         account = self.db.query(Account).filter(Account.id == account_id).first()
-        return AccountResponse.from_orm(account) if account else None
+        return AccountResponse.model_validate(account) if account else None
     
     async def update_account(self, account_id: int, account_data: AccountCreate) -> Optional[AccountResponse]:
         """Update an account"""
@@ -121,7 +121,7 @@ class PlatformService:
         
         self.db.commit()
         self.db.refresh(account)
-        return AccountResponse.from_orm(account)
+        return AccountResponse.model_validate(account)
     
     async def delete_account(self, account_id: int) -> bool:
         """Delete an account"""

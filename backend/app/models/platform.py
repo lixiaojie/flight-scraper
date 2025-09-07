@@ -29,6 +29,8 @@ class Platform(Base):
     base_url = Column(String(500), nullable=True)  # For websites
     bundle_id = Column(String(200), nullable=True)  # For mobile apps
     package_name = Column(String(200), nullable=True)  # For Android apps
+    app_name = Column(String(200), nullable=True)  # Display name for mobile apps
+    download_url = Column(String(1000), nullable=True)  # Download URL for mobile apps
     
     # Scraping configuration
     search_url_template = Column(Text, nullable=True)
