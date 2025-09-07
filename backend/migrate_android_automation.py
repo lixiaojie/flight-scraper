@@ -24,6 +24,7 @@ def migrate_android_automation():
                 status VARCHAR(50) NOT NULL DEFAULT 'pending',
                 container_id VARCHAR(100),
                 container_name VARCHAR(100),
+                android_container_id INTEGER REFERENCES android_containers(id),
                 app_package VARCHAR(200),
                 app_version VARCHAR(50),
                 apk_path VARCHAR(500),

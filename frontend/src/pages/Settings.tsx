@@ -269,9 +269,6 @@ const Settings: React.FC = () => {
         <Card>
           <CardHeader>
             <CardTitle>Target Platform Settings</CardTitle>
-            <CardDescription>
-              Configure platforms for flight data scraping
-            </CardDescription>
           </CardHeader>
                 <CardContent>
                   {/* Add Platform Button */}

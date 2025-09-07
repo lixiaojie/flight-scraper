@@ -5,6 +5,8 @@
 This is a comprehensive flight data scraping tool that allows users to:
 - Create and manage scraping tasks for multiple flight booking platforms
 - Automate web and mobile app interactions to extract flight data
+- Deploy containerized Android environments for mobile app testing
+- Capture screenshots and automate mobile app interactions
 - Compare prices across different sources
 - Monitor task execution and results through a modern web interface
 
@@ -15,7 +17,8 @@ This is a comprehensive flight data scraping tool that allows users to:
 - **SQLAlchemy**: Database ORM for data persistence
 - **Celery**: Distributed task queue for background processing
 - **Selenium/Playwright**: Web automation for browser interactions (planned)
-- **Appium**: Mobile app automation for iOS/Android (planned)
+- **Docker Android**: Containerized Android emulators for mobile app testing
+- **ADB**: Android Debug Bridge for mobile app automation
 - **Tesseract**: OCR for extracting text from screenshots (planned)
 - **PostgreSQL**: Primary database for data storage
 - **Redis**: Message broker for Celery
@@ -45,6 +48,21 @@ This is a comprehensive flight data scraping tool that allows users to:
 - **Storage**: At least 2GB free space
 - **OS**: Windows 10+, macOS 10.15+, or Linux (Ubuntu 18.04+)
 
+## 🚀 Features
+
+### Core Features
+- **Task Management**: Create, monitor, and manage scraping tasks
+- **Platform Configuration**: Configure multiple flight booking platforms
+- **Real-time Monitoring**: Track task execution and results
+- **Data Export**: Export scraping results in various formats
+
+### Android Automation Features
+- **Containerized Android**: Deploy Android emulators in Docker containers
+- **App Automation**: Download, install, and test Android applications
+- **Screenshot Capture**: Generate publicly accessible screenshots
+- **Resource Monitoring**: Monitor container CPU, memory, and disk usage
+- **Session Management**: Track automation sessions and their status
+
 ## 🐳 Quick Start (Docker - Recommended)
 
 ### Step 1: Clone the Repository
@@ -63,7 +81,16 @@ docker-compose up -d
 docker-compose ps
 ```
 
-### Step 3: Verify Installation
+### Step 3: Start Android Automation Services (Optional)
+```bash
+# Start Android emulator and Nginx for production
+docker-compose --profile android --profile production up -d
+
+# Or start only Android emulator for testing
+docker-compose --profile android up -d android-emulator
+```
+
+### Step 4: Verify Installation
 ```bash
 # Run the deployment test script
 chmod +x test_deployment.sh
@@ -463,6 +490,41 @@ VITE_DEV_MODE=true
    - Error logging and reporting
    - Performance monitoring
    - Health checks
+
+## 📱 Android Automation Usage
+
+### Starting Android Automation
+1. **Access the Android Automation page** in the web interface
+2. **Configure platforms** in Settings > Target Platform Settings
+3. **Start automation** by selecting a mobile app platform
+4. **Monitor progress** through the automation dashboard
+
+### Android Automation Features
+- **Container Management**: Start/stop Android emulator containers
+- **App Testing**: Download, install, and test Android applications
+- **Screenshot Capture**: Generate publicly accessible screenshots
+- **Session Tracking**: Monitor automation sessions and their status
+- **Resource Monitoring**: Track container CPU, memory, and disk usage
+
+### API Endpoints for Android Automation
+```bash
+# Start automation session
+POST /api/v1/android-automation/start
+{
+  "platform_id": 1,
+  "wait_time": 30,
+  "capture_screenshot": true
+}
+
+# Get session status
+GET /api/v1/android-automation/sessions/{session_id}
+
+# List all sessions
+GET /api/v1/android-automation/sessions
+
+# List containers
+GET /api/v1/android-automation/containers
+```
 
 ## API Endpoints
 

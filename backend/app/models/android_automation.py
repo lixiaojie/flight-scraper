@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from .base import Base
+from app.core.database import Base
 
 
 class AndroidAutomationSession(Base):
@@ -14,6 +14,7 @@ class AndroidAutomationSession(Base):
     status = Column(String(50), nullable=False, default="pending")  # pending, running, completed, failed
     container_id = Column(String(100), nullable=True)  # Docker container ID
     container_name = Column(String(100), nullable=True)  # Docker container name
+    android_container_id = Column(Integer, ForeignKey("android_containers.id"), nullable=True)  # Link to container
     
     # App information
     app_package = Column(String(200), nullable=True)  # e.g., com.chinarailway.globalticketing
@@ -37,6 +38,7 @@ class AndroidAutomationSession(Base):
     
     # Relationships
     platform = relationship("Platform", back_populates="automation_sessions")
+    container = relationship("AndroidContainer", back_populates="automation_sessions")
     
     def __repr__(self):
         return f"<AndroidAutomationSession(id={self.id}, session_id='{self.session_id}', status='{self.status}')>"

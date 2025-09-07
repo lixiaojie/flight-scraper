@@ -1,6 +1,6 @@
 # 🛩️ Flight Data Scraping Tool
 
-A comprehensive web scraping application for flight price monitoring with a modern React frontend and FastAPI backend.
+A comprehensive web scraping application for flight price monitoring with Android app automation capabilities, featuring a modern React frontend and FastAPI backend.
 
 ## 🚀 Features
 
@@ -14,11 +14,13 @@ A comprehensive web scraping application for flight price monitoring with a mode
 - **Database Integration**: PostgreSQL with SQLAlchemy ORM
 - **Background Processing**: Celery task queue with Redis
 - **Toast Notifications**: User-friendly feedback system
+- **Android App Automation**: Containerized Android emulator deployment
+- **Screenshot Capture**: Automated app testing with screenshot generation
+- **Platform Configuration**: Mobile app and website platform management
 
 ### 🚧 In Development
 - **Web Scraping Engine**: Selenium/Playwright automation
 - **Data Extraction**: Flight price parsing and comparison
-- **Mobile App Support**: Appium integration for mobile apps
 - **OCR Processing**: Tesseract for screenshot text extraction
 
 ## 🏗️ Architecture
@@ -35,8 +37,16 @@ A comprehensive web scraping application for flight price monitoring with a mode
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Nginx         │    │   Celery        │    │   Redis         │
 │   (Optional)    │    │   Worker        │    │   (Message      │
-│                 │    │                 │    │    Broker)      │
+│   Port: 80      │    │                 │    │    Broker)      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                    ┌─────────────────┐
+                    │   Android       │
+                    │   Automation    │
+                    │   Containers    │
+                    │   Port: 5555    │
+                    └─────────────────┘
 ```
 
 ## 🛠️ Tech Stack
@@ -49,6 +59,8 @@ A comprehensive web scraping application for flight price monitoring with a mode
 - **Redis**: Message broker and caching
 - **JWT**: Authentication tokens
 - **Pydantic**: Data validation
+- **Docker**: Containerized Android emulators
+- **ADB**: Android Debug Bridge for mobile automation
 
 ### Frontend
 - **React 18**: Modern React with hooks

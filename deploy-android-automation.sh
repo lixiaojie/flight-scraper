@@ -10,7 +10,7 @@ echo "=================================================================="
 
 # Configuration
 PROJECT_DIR="/opt/flight-scraper"
-DOCKER_COMPOSE_FILE="docker-compose-android.yml"
+DOCKER_COMPOSE_FILE="docker-compose.yml"
 NGINX_CONFIG="nginx.conf"
 
 # Colors for output
