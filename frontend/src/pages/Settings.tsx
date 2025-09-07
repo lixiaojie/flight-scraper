@@ -18,6 +18,7 @@ import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
+import { useToastHelpers } from '../lib/toast'
 
 const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'apps' | 'websites'>('apps')
@@ -25,6 +26,7 @@ const Settings: React.FC = () => {
   const [editingAccount, setEditingAccount] = useState<any>(null)
   const [showPlatformModal, setShowPlatformModal] = useState(false)
   const [editingPlatform, setEditingPlatform] = useState<any>(null)
+  const { showSuccess, showError } = useToastHelpers()
   
   // Platform form state
   const [platformForm, setPlatformForm] = useState({
@@ -37,8 +39,8 @@ const Settings: React.FC = () => {
     baseUrl: ''
   })
 
-  // Mock data
-  const [platforms] = useState([
+  // Mock data - now mutable
+  const [platforms, setPlatforms] = useState([
     { id: 1, name: 'Expedia', type: 'website', baseUrl: 'https://expedia.com', isActive: true },
     { id: 2, name: 'Kayak', type: 'website', baseUrl: 'https://kayak.com', isActive: true },
     { id: 3, name: 'Expedia App', type: 'app', bundleId: 'com.expedia.app', isActive: false },
@@ -96,6 +98,63 @@ const Settings: React.FC = () => {
 
   const handlePlatformFormChange = (field: string, value: string) => {
     setPlatformForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handlePlatformSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    // Validate required fields
+    if (!platformForm.name.trim()) {
+      showError('Validation Error', 'Platform name is required')
+      return
+    }
+    
+    if (platformForm.type === 'app' && !platformForm.bundleId.trim()) {
+      showError('Validation Error', 'Bundle ID is required for mobile apps')
+      return
+    }
+    
+    if (platformForm.type === 'website' && !platformForm.baseUrl.trim()) {
+      showError('Validation Error', 'Base URL is required for websites')
+      return
+    }
+
+    // Create new platform object
+    const newPlatform = {
+      id: Math.max(...platforms.map(p => p.id)) + 1, // Generate new ID
+      name: platformForm.name,
+      type: platformForm.type,
+      baseUrl: platformForm.type === 'website' ? platformForm.baseUrl : undefined,
+      bundleId: platformForm.type === 'app' ? platformForm.bundleId : undefined,
+      appName: platformForm.type === 'app' ? platformForm.appName : undefined,
+      downloadUrl: platformForm.type === 'app' ? platformForm.downloadUrl : undefined,
+      isActive: true
+    }
+
+    if (editingPlatform) {
+      // Update existing platform
+      setPlatforms(prev => prev.map(p => 
+        p.id === editingPlatform.id ? { ...p, ...newPlatform } : p
+      ))
+      showSuccess('Platform Updated', `Platform "${newPlatform.name}" has been updated successfully`)
+    } else {
+      // Add new platform
+      setPlatforms(prev => [...prev, newPlatform])
+      showSuccess('Platform Added', `Platform "${newPlatform.name}" has been added successfully`)
+    }
+
+    // Reset form and close modal
+    setPlatformForm({
+      name: '',
+      displayName: '',
+      type: 'app',
+      bundleId: '',
+      appName: '',
+      downloadUrl: '',
+      baseUrl: ''
+    })
+    setShowPlatformModal(false)
+    setEditingPlatform(null)
   }
 
   return (
@@ -429,7 +488,7 @@ const Settings: React.FC = () => {
         title={editingPlatform ? 'Edit Platform' : 'Add New Platform'}
         size="lg"
       >
-        <div className="space-y-4">
+        <form onSubmit={handlePlatformSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Platform Name</label>
@@ -490,14 +549,14 @@ const Settings: React.FC = () => {
           )}
 
           <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={() => setShowPlatformModal(false)}>
+            <Button type="button" variant="outline" onClick={() => setShowPlatformModal(false)}>
               Cancel
             </Button>
-            <Button>
+            <Button type="submit">
               {editingPlatform ? 'Update Platform' : 'Add Platform'}
             </Button>
           </div>
-        </div>
+        </form>
       </Modal>
     </div>
   )
