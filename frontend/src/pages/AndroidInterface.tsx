@@ -231,7 +231,7 @@ const AndroidInterface: React.FC = () => {
               </label>
               <Select
                 value={selectedContainer?.container_id || ''}
-                onValueChange={handleContainerSelect}
+                onChange={(e) => handleContainerSelect(e.target.value)}
               >
                 <option value="">Choose a container...</option>
                 {containers.map((container) => (
