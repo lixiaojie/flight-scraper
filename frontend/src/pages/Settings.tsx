@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Globe, 
@@ -19,6 +19,7 @@ import { Select } from '../components/ui/Select'
 import { Badge } from '../components/ui/Badge'
 import { Modal } from '../components/ui/Modal'
 import { useToastHelpers } from '../lib/toast'
+import api, { endpoints } from '../lib/api'
 
 const Settings: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'apps' | 'websites'>('apps')
@@ -26,6 +27,7 @@ const Settings: React.FC = () => {
   const [editingAccount, setEditingAccount] = useState<any>(null)
   const [showPlatformModal, setShowPlatformModal] = useState(false)
   const [editingPlatform, setEditingPlatform] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(false)
   const { showSuccess, showError } = useToastHelpers()
   
   // Platform form state
@@ -39,13 +41,32 @@ const Settings: React.FC = () => {
     baseUrl: ''
   })
 
-  // Mock data - now mutable
-  const [platforms, setPlatforms] = useState([
-    { id: 1, name: 'Expedia', type: 'website', baseUrl: 'https://expedia.com', isActive: true },
-    { id: 2, name: 'Kayak', type: 'website', baseUrl: 'https://kayak.com', isActive: true },
-    { id: 3, name: 'Expedia App', type: 'app', bundleId: 'com.expedia.app', isActive: false },
-    { id: 4, name: '12306', type: 'app', bundleId: 'com.chinarailway.globalticketing', appName: '12306', downloadUrl: 'https://dynamic.12306.cn/otn/appdownload/12306v5.9.4.5.apk', isActive: true },
-  ])
+  // Platforms state - will be fetched from API
+  const [platforms, setPlatforms] = useState<any[]>([])
+
+  // Fetch platforms from API
+  const fetchPlatforms = async () => {
+    try {
+      setIsLoading(true)
+      const response = await api.get(endpoints.platforms.list)
+      // Map API response to frontend format
+      const mappedPlatforms = response.data.map((platform: any) => ({
+        ...platform,
+        type: platform.platform_type === 'mobile_app' ? 'app' : 'website'
+      }))
+      setPlatforms(mappedPlatforms)
+    } catch (error) {
+      console.error('Failed to fetch platforms:', error)
+      showError('Error', 'Failed to load platforms')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Load platforms on component mount
+  useEffect(() => {
+    fetchPlatforms()
+  }, [])
 
   const [accounts] = useState([
     { id: 1, accountId: 'user1', platform: 'Expedia', maxQueries: 100, rotationMode: 'single' },
@@ -100,15 +121,25 @@ const Settings: React.FC = () => {
     setPlatformForm(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleDeletePlatform = (platformId: number) => {
+  const handleDeletePlatform = async (platformId: number) => {
     const platform = platforms.find(p => p.id === platformId)
     if (platform && window.confirm(`Are you sure you want to delete the platform "${platform.name}"?`)) {
-      setPlatforms(prev => prev.filter(p => p.id !== platformId))
-      showSuccess('Platform Deleted', `Platform "${platform.name}" has been deleted successfully`)
+      try {
+        setIsLoading(true)
+        await api.delete(endpoints.platforms.delete(platformId))
+        showSuccess('Platform Deleted', `Platform "${platform.name}" has been deleted successfully`)
+        // Refresh platforms list
+        await fetchPlatforms()
+      } catch (error: any) {
+        console.error('Delete platform failed:', error)
+        showError('Error', error.response?.data?.detail || 'Failed to delete platform')
+      } finally {
+        setIsLoading(false)
+      }
     }
   }
 
-  const handlePlatformSubmit = (e: React.FormEvent) => {
+  const handlePlatformSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     // Validate required fields
@@ -127,42 +158,53 @@ const Settings: React.FC = () => {
       return
     }
 
-    // Create new platform object
-    const newPlatform = {
-      id: Math.max(...platforms.map(p => p.id)) + 1, // Generate new ID
-      name: platformForm.name,
-      type: platformForm.type,
-      baseUrl: platformForm.type === 'website' ? platformForm.baseUrl : undefined,
-      bundleId: platformForm.type === 'app' ? platformForm.bundleId : undefined,
-      appName: platformForm.type === 'app' ? platformForm.appName : undefined,
-      downloadUrl: platformForm.type === 'app' ? platformForm.downloadUrl : undefined,
-      isActive: true
-    }
+    try {
+      setIsLoading(true)
+      
+      // Prepare platform data for API
+      const platformData = {
+        name: platformForm.name,
+        display_name: platformForm.displayName || platformForm.name,
+        platform_type: platformForm.type === 'app' ? 'mobile_app' : 'web',
+        base_url: platformForm.type === 'website' ? platformForm.baseUrl : null,
+        bundle_id: platformForm.type === 'app' ? platformForm.bundleId : null,
+        app_name: platformForm.type === 'app' ? platformForm.appName : null,
+        download_url: platformForm.type === 'app' ? platformForm.downloadUrl : null,
+        is_active: true
+      }
 
-    if (editingPlatform) {
-      // Update existing platform
-      setPlatforms(prev => prev.map(p => 
-        p.id === editingPlatform.id ? { ...p, ...newPlatform } : p
-      ))
-      showSuccess('Platform Updated', `Platform "${newPlatform.name}" has been updated successfully`)
-    } else {
-      // Add new platform
-      setPlatforms(prev => [...prev, newPlatform])
-      showSuccess('Platform Added', `Platform "${newPlatform.name}" has been added successfully`)
-    }
+      if (editingPlatform) {
+        // Update existing platform
+        await api.put(endpoints.platforms.update(editingPlatform.id), platformData)
+        showSuccess('Platform Updated', `Platform "${platformForm.name}" has been updated successfully`)
+      } else {
+        // Create new platform
+        await api.post(endpoints.platforms.create, platformData)
+        showSuccess('Platform Added', `Platform "${platformForm.name}" has been added successfully`)
+      }
 
-    // Reset form and close modal
-    setPlatformForm({
-      name: '',
-      displayName: '',
-      type: activeTab === 'apps' ? 'app' : 'website',
-      bundleId: '',
-      appName: '',
-      downloadUrl: '',
-      baseUrl: ''
-    })
-    setShowPlatformModal(false)
-    setEditingPlatform(null)
+      // Refresh platforms list
+      await fetchPlatforms()
+
+      // Reset form and close modal
+      setPlatformForm({
+        name: '',
+        displayName: '',
+        type: activeTab === 'apps' ? 'app' : 'website',
+        bundleId: '',
+        appName: '',
+        downloadUrl: '',
+        baseUrl: ''
+      })
+      setShowPlatformModal(false)
+      setEditingPlatform(null)
+
+    } catch (error: any) {
+      console.error('Platform operation failed:', error)
+      showError('Error', error.response?.data?.detail || 'Failed to save platform')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -251,7 +293,12 @@ const Settings: React.FC = () => {
                 </div>
               </div>
 
-              {platforms.filter(p => p.type === activeTab).length === 0 ? (
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p>Loading platforms...</p>
+                </div>
+              ) : platforms.filter(p => p.type === activeTab).length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <div className="mb-4">
                     {activeTab === 'apps' ? (
@@ -629,8 +676,8 @@ const Settings: React.FC = () => {
             <Button type="button" variant="outline" onClick={() => setShowPlatformModal(false)}>
               Cancel
             </Button>
-            <Button type="submit">
-              {editingPlatform ? 'Update Platform' : 'Add Platform'}
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? 'Saving...' : (editingPlatform ? 'Update Platform' : 'Add Platform')}
             </Button>
           </div>
         </form>
