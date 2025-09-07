@@ -52,7 +52,13 @@ const Settings: React.FC = () => {
       // Map API response to frontend format
       const mappedPlatforms = response.data.map((platform: any) => ({
         ...platform,
-        type: platform.platform_type === 'mobile_app' ? 'app' : 'website'
+        type: platform.platform_type === 'mobile_app' ? 'app' : 'website',
+        // Map snake_case to camelCase for frontend compatibility
+        appName: platform.app_name,
+        bundleId: platform.bundle_id,
+        downloadUrl: platform.download_url,
+        baseUrl: platform.base_url,
+        isActive: platform.is_active
       }))
       setPlatforms(mappedPlatforms)
     } catch (error) {
