@@ -14,7 +14,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -69,6 +70,7 @@ const AndroidAutomation: React.FC = () => {
   const [sessions, setSessions] = useState<AutomationSession[]>([])
   const [containers, setContainers] = useState<Container[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
   const [showStartModal, setShowStartModal] = useState(false)
   const [selectedPlatform, setSelectedPlatform] = useState<number | null>(null)
   const [waitTime, setWaitTime] = useState(30)
@@ -117,12 +119,34 @@ const AndroidAutomation: React.FC = () => {
 
     try {
       setIsLoading(true)
+      setLoadingMessage('Initializing automation...')
+      
+      // Simulate progress updates
+      const progressMessages = [
+        'Initializing automation...',
+        'Setting up Android container...',
+        'Downloading and installing app...',
+        'Launching application...',
+        'Capturing screenshot...',
+        'Finalizing automation...'
+      ]
+      
+      let messageIndex = 0
+      const progressInterval = setInterval(() => {
+        if (messageIndex < progressMessages.length - 1) {
+          messageIndex++
+          setLoadingMessage(progressMessages[messageIndex])
+        }
+      }, 2000) // Update every 2 seconds
+      
       const response = await api.post('/android-automation/start', {
         platform_id: selectedPlatform,
         wait_time: waitTime,
         capture_screenshot: captureScreenshot
       })
 
+      clearInterval(progressInterval)
+      setLoadingMessage('')
       showSuccess('Automation Started', `Session ${response.data.session_id} started successfully`)
       setShowStartModal(false)
       fetchSessions()
@@ -132,6 +156,7 @@ const AndroidAutomation: React.FC = () => {
       showError('Error', error.response?.data?.detail || 'Failed to start automation')
     } finally {
       setIsLoading(false)
+      setLoadingMessage('')
     }
   }
 
@@ -592,6 +617,23 @@ const AndroidAutomation: React.FC = () => {
             )
           })()}
 
+          {/* Progress Indicator */}
+          {isLoading && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center space-x-3">
+                <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900">
+                    {loadingMessage || 'Starting Automation...'}
+                  </p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    This may take 10-15 seconds. Please wait...
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Wait Time (seconds)</label>
             <Input
@@ -635,7 +677,17 @@ const AndroidAutomation: React.FC = () => {
                 })())
               }
             >
-              {isLoading ? 'Starting...' : 'Start Automation'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {loadingMessage || 'Starting Automation...'}
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Automation
+                </>
+              )}
             </Button>
           </div>
         </div>
