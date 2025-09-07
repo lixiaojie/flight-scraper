@@ -1,143 +1,192 @@
-# Flight Data Scraping Tool
+# 🛩️ Flight Data Scraping Tool
 
-A comprehensive, modern tool for scraping flight booking data from multiple apps and websites. Built with FastAPI and React, it provides automated data collection, price comparison, and a beautiful user interface for managing scraping tasks.
+A comprehensive web scraping application for flight price monitoring with a modern React frontend and FastAPI backend.
 
-## 🚀 Quick Start
+## 🚀 Features
 
-### Using Docker (Recommended)
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd flight-scraper
-
-# Start all services
-docker-compose up -d
-
-# Access the application
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:8000
-# API Docs: http://localhost:8000/docs
-```
-
-### Demo Credentials
-- **Username**: `admin`
-- **Password**: `admin123`
-
-## ✨ Features
-
-### ✅ Implemented
-- **Modern Dashboard**: Real-time task monitoring and statistics
-- **Task Management**: Create, schedule, and monitor scraping tasks
-- **Platform Configuration**: Manage target platforms and accounts
-- **Authentication**: Secure user login and session management
-- **Responsive UI**: Beautiful, modern interface with dark mode
-- **Real-time Updates**: Live task status and progress tracking
-- **Docker Support**: Complete containerized development environment
+### ✅ Completed Features
+- **Modern Web Interface**: React 18 + TypeScript + TailwindCSS
+- **Authentication System**: JWT-based login with secure password hashing
+- **Task Management**: Create, monitor, and manage flight scraping tasks
+- **Dashboard**: Real-time statistics and task monitoring
+- **System Configuration**: Platform settings and account management
+- **Docker Deployment**: Complete containerized setup
+- **Database Integration**: PostgreSQL with SQLAlchemy ORM
+- **Background Processing**: Celery task queue with Redis
+- **Toast Notifications**: User-friendly feedback system
 
 ### 🚧 In Development
-- **Web Automation**: Selenium/Playwright integration for website scraping
-- **Mobile Automation**: Appium integration for mobile app scraping
-- **Data Extraction**: OCR and HTML parsing for flight data
-- **Price Comparison**: Automated comparison and best deal identification
-- **Export Features**: CSV/Excel export of scraping results
+- **Web Scraping Engine**: Selenium/Playwright automation
+- **Data Extraction**: Flight price parsing and comparison
+- **Mobile App Support**: Appium integration for mobile apps
+- **OCR Processing**: Tesseract for screenshot text extraction
 
 ## 🏗️ Architecture
 
-### Backend (Python/FastAPI)
 ```
-backend/
-├── app/
-│   ├── api/           # REST API endpoints
-│   ├── core/          # Configuration, security, database
-│   ├── models/        # SQLAlchemy database models
-│   ├── services/      # Business logic services
-│   └── schemas/       # Pydantic data validation
-├── requirements.txt   # Python dependencies
-└── main.py           # FastAPI application entry point
-```
-
-### Frontend (React/TypeScript)
-```
-frontend/
-├── src/
-│   ├── components/    # Reusable UI components
-│   ├── pages/         # Page components
-│   ├── contexts/      # React contexts (auth, theme)
-│   ├── lib/           # Utilities and API client
-│   └── types/         # TypeScript type definitions
-├── package.json       # Node.js dependencies
-└── tailwind.config.js # TailwindCSS configuration
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend       │    │   Database      │
+│   (React)       │◄──►│   (FastAPI)     │◄──►│   (PostgreSQL)  │
+│   Port: 3000    │    │   Port: 8000    │    │   Port: 5432    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Nginx         │    │   Celery        │    │   Redis         │
+│   (Optional)    │    │   Worker        │    │   (Message      │
+│                 │    │                 │    │    Broker)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
-## 🛠️ Technology Stack
+## 🛠️ Tech Stack
 
 ### Backend
-- **FastAPI** - Modern, fast web framework
-- **SQLAlchemy** - Database ORM with PostgreSQL
-- **Celery** - Distributed task queue with Redis
-- **Pydantic** - Data validation and serialization
-- **JWT** - Secure authentication tokens
+- **FastAPI**: Modern Python web framework
+- **SQLAlchemy**: Python ORM for database operations
+- **PostgreSQL**: Primary database
+- **Celery**: Distributed task queue
+- **Redis**: Message broker and caching
+- **JWT**: Authentication tokens
+- **Pydantic**: Data validation
 
 ### Frontend
-- **React 18** - Modern UI framework with TypeScript
-- **Vite** - Fast build tool and dev server
-- **TailwindCSS** - Utility-first CSS framework
-- **ShadCN/UI** - Beautiful component library
-- **React Query** - Data fetching and caching
-- **Framer Motion** - Smooth animations
+- **React 18**: Modern React with hooks
+- **TypeScript**: Type-safe JavaScript
+- **TailwindCSS**: Utility-first CSS framework
+- **React Query**: Data fetching and caching
+- **Framer Motion**: Smooth animations
+- **React Router**: Client-side routing
+- **Lucide React**: Beautiful icons
 
 ### Infrastructure
-- **Docker** - Containerization
-- **PostgreSQL** - Primary database
-- **Redis** - Message broker and caching
-- **Nginx** - Reverse proxy (production)
+- **Docker**: Containerization
+- **Docker Compose**: Multi-container orchestration
+- **GitHub**: Version control and CI/CD
 
-## 📊 Database Schema
+## 🚀 Quick Start
 
-### Core Entities
-- **Users** - Authentication and user management
-- **Tasks** - Scraping task configurations
-- **Platforms** - Target platforms (websites/apps)
-- **Accounts** - Platform credentials and limits
-- **Flight Data** - Extracted flight information
+### Prerequisites
+- Docker and Docker Compose
+- Git
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/lixiaojie/flight-scraper.git
+cd flight-scraper
+```
+
+### 2. Start the Application
+```bash
+docker-compose up -d
+```
+
+### 3. Verify Installation
+```bash
+chmod +x test_deployment.sh
+./test_deployment.sh
+```
+
+### 4. Access the Application
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+
+### 5. Create Demo User
+```bash
+docker-compose exec backend python -c "
+from app.core.database import SessionLocal
+from app.models.user import User
+from app.core.security import get_password_hash
+
+db = SessionLocal()
+try:
+    existing_user = db.query(User).filter(User.username == 'admin').first()
+    if existing_user:
+        print('Demo user already exists: admin/admin123')
+    else:
+        user = User(
+            username='admin',
+            email='admin@example.com',
+            hashed_password=get_password_hash('admin123')
+        )
+        db.add(user)
+        db.commit()
+        print('Demo user created: admin/admin123')
+finally:
+    db.close()
+"
+```
+
+### 6. Login and Explore
+- **Username**: `admin`
+- **Password**: `admin123`
+
+## 📁 Project Structure
+
+```
+flight-scraper/
+├── backend/                 # FastAPI backend
+│   ├── app/
+│   │   ├── api/            # API endpoints
+│   │   ├── core/           # Core configuration
+│   │   ├── models/         # Database models
+│   │   ├── schemas/        # Pydantic schemas
+│   │   ├── services/       # Business logic
+│   │   └── tasks/          # Celery tasks
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/               # React frontend
+│   ├── src/
+│   │   ├── components/     # Reusable components
+│   │   ├── pages/          # Page components
+│   │   ├── contexts/       # React contexts
+│   │   └── lib/            # Utilities
+│   ├── Dockerfile
+│   └── package.json
+├── docker-compose.yml      # Multi-container setup
+├── test_deployment.sh      # Deployment testing
+└── SETUP.md               # Detailed setup guide
+```
 
 ## 🔧 Development
 
-### Prerequisites
-- Docker & Docker Compose
-- Node.js 18+ (for local frontend development)
-- Python 3.11+ (for local backend development)
+### Branch Strategy
+- `main`: Production-ready code
+- `develop`: Integration branch for features
+- `feature/*`: Feature development branches
 
-### Local Development Setup
+### Development Workflow
+1. Create feature branch from `develop`
+2. Develop and test features
+3. Create pull request to `develop`
+4. Merge to `main` for releases
 
-#### Backend
+### Local Development
 ```bash
+# Backend development
 cd backend
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload
-```
 
-#### Frontend
-```bash
+# Frontend development
 cd frontend
 npm install
 npm run dev
+
+# Celery worker
+celery -A app.core.celery worker --loglevel=info
 ```
 
-### Environment Configuration
-Copy the example environment files and configure:
-- `backend/env.example` → `backend/.env`
-- `frontend/env.example` → `frontend/.env`
-
-## 📚 API Documentation
+## 📊 API Endpoints
 
 ### Authentication
-- `POST /api/v1/auth/login` - User authentication
+- `POST /api/v1/auth/login` - User login
 - `POST /api/v1/auth/register` - User registration
-- `GET /api/v1/auth/me` - Current user info
+- `GET /api/v1/auth/me` - Get current user
+- `POST /api/v1/auth/logout` - User logout
 
 ### Tasks
 - `GET /api/v1/tasks` - List all tasks
@@ -147,84 +196,62 @@ Copy the example environment files and configure:
 - `DELETE /api/v1/tasks/{id}` - Delete task
 
 ### Dashboard
-- `GET /api/v1/dashboard/stats` - Dashboard statistics
-- `GET /api/v1/dashboard/recent-tasks` - Recent tasks
-- `GET /api/v1/dashboard/price-trends` - Price trends
+- `GET /api/v1/dashboard/stats` - Get dashboard statistics
+- `GET /api/v1/dashboard/recent-tasks` - Get recent tasks
 
-Full API documentation available at: http://localhost:8000/docs
+## 🧪 Testing
+
+### Run Tests
+```bash
+# Backend tests
+docker-compose exec backend pytest
+
+# Frontend tests
+cd frontend && npm test
+
+# End-to-end deployment test
+./test_deployment.sh
+```
 
 ## 🚀 Deployment
 
-### Production Checklist
-- [ ] Set secure `SECRET_KEY`
-- [ ] Configure production database
-- [ ] Set up SSL certificates
-- [ ] Configure environment variables
-- [ ] Set up monitoring and logging
-- [ ] Configure backup strategies
+### Production Deployment
+1. Update environment variables
+2. Configure production database
+3. Set up SSL certificates
+4. Deploy with Docker Compose
 
-### Docker Production
-```bash
-# Build production images
-docker-compose -f docker-compose.prod.yml build
-
-# Deploy to production
-docker-compose -f docker-compose.prod.yml up -d
-```
+### Environment Variables
+See `backend/env.example` and `frontend/env.example` for required environment variables.
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-- Follow PEP 8 for Python code
-- Use TypeScript for all frontend code
-- Write tests for new functionality
-- Update documentation for API changes
-- Use conventional commit messages
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🆘 Support
 
-- 📖 **Documentation**: See [SETUP.md](SETUP.md) for detailed setup instructions
-- 🐛 **Issues**: Report bugs via GitHub Issues
-- 💬 **Discussions**: Join our GitHub Discussions for questions
-- 📧 **Contact**: Reach out to the development team
+- **Documentation**: See `SETUP.md` for detailed setup instructions
+- **Issues**: Report bugs and feature requests on GitHub
+- **Discussions**: Use GitHub Discussions for questions
 
 ## 🎯 Roadmap
 
-### Phase 1: Core Platform ✅
-- [x] Project architecture and setup
-- [x] User authentication and authorization
-- [x] Task management system
-- [x] Platform configuration
-- [x] Modern UI/UX with responsive design
-
-### Phase 2: Automation Engine 🚧
-- [ ] Web scraping automation (Selenium/Playwright)
-- [ ] Mobile app automation (Appium)
-- [ ] Screenshot capture and processing
-- [ ] Data extraction and parsing
-
-### Phase 3: Data Processing 🚧
-- [ ] OCR text extraction
-- [ ] Flight data normalization
-- [ ] Price comparison algorithms
-- [ ] Export and reporting features
-
-### Phase 4: Advanced Features 📋
-- [ ] Machine learning for price prediction
-- [ ] Advanced analytics and insights
+- [ ] Complete web scraping engine
+- [ ] Mobile app automation
+- [ ] Advanced data analytics
+- [ ] Real-time notifications
 - [ ] Multi-language support
-- [ ] Mobile app development
+- [ ] API rate limiting
+- [ ] Advanced security features
 
 ---
 
-**Built with ❤️ for efficient flight data collection and analysis**
+**Made with ❤️ for efficient flight price monitoring**
