@@ -463,6 +463,37 @@ const AndroidAutomation: React.FC = () => {
             </Select>
           </div>
 
+          {/* Platform Information Display */}
+          {selectedPlatform && (() => {
+            const platform = platforms.find(p => p.id === selectedPlatform)
+            if (!platform) return null
+            
+            return (
+              <div className="bg-accent/50 rounded-lg p-4 space-y-2">
+                <h4 className="text-sm font-medium text-foreground">Platform Configuration</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">App Name:</span>
+                    <div className="font-medium">{platform.app_name || 'Not specified'}</div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Bundle ID:</span>
+                    <div className="font-mono font-medium">{platform.bundle_id || 'Not specified'}</div>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">Download URL:</span>
+                    <div className="font-mono text-xs break-all">{platform.download_url || 'Not specified'}</div>
+                  </div>
+                </div>
+                {(!platform.bundle_id || !platform.download_url) && (
+                  <div className="text-xs text-yellow-600 bg-yellow-50 p-2 rounded">
+                    ⚠️ This platform is missing required configuration. Please update the platform settings.
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Wait Time (seconds)</label>
             <Input
@@ -495,7 +526,17 @@ const AndroidAutomation: React.FC = () => {
             <Button variant="outline" onClick={() => setShowStartModal(false)}>
               Cancel
             </Button>
-            <Button onClick={startAutomation} disabled={isLoading || !selectedPlatform}>
+            <Button 
+              onClick={startAutomation} 
+              disabled={
+                isLoading || 
+                !selectedPlatform || 
+                (selectedPlatform && (() => {
+                  const platform = platforms.find(p => p.id === selectedPlatform)
+                  return !platform?.bundle_id || !platform?.download_url
+                })())
+              }
+            >
               {isLoading ? 'Starting...' : 'Start Automation'}
             </Button>
           </div>

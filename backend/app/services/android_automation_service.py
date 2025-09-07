@@ -41,13 +41,38 @@ class AndroidAutomationService:
         start_time = time.time()
         
         try:
-            # Create automation session
+            # Get platform information first
+            platform = self.db.query(Platform).filter(Platform.id == request.platform_id).first()
+            if not platform:
+                raise ValueError(f"Platform with ID {request.platform_id} not found")
+            
+            # Validate platform configuration
+            if platform.platform_type != "mobile_app":
+                raise ValueError(f"Platform {platform.name} is not a mobile app platform")
+            
+            if not platform.bundle_id:
+                raise ValueError(f"Platform {platform.name} has no bundle ID configured")
+            
+            if not platform.download_url:
+                raise ValueError(f"Platform {platform.name} has no download URL configured")
+            
+            # Use platform settings as primary source, request parameters as overrides
+            app_package = request.app_package or platform.bundle_id
+            app_version = request.app_version or "latest"
+            apk_url = request.apk_url or platform.download_url
+            
+            logger.info(f"Using platform settings for {platform.name}:")
+            logger.info(f"  - App Package: {app_package}")
+            logger.info(f"  - App Version: {app_version}")
+            logger.info(f"  - APK URL: {apk_url}")
+            
+            # Create automation session with platform-derived information
             session = AndroidAutomationSession(
                 session_id=session_id,
                 platform_id=request.platform_id,
                 status=AutomationStatus.PENDING,
-                app_package=request.app_package,
-                app_version=request.app_version
+                app_package=app_package,
+                app_version=app_version
             )
             self.db.add(session)
             self.db.commit()
@@ -55,16 +80,11 @@ class AndroidAutomationService:
             
             logger.info(f"Created automation session {session_id}")
             
-            # Get platform information
-            platform = self.db.query(Platform).filter(Platform.id == request.platform_id).first()
-            if not platform:
-                raise ValueError(f"Platform with ID {request.platform_id} not found")
-            
             # Step 1: Setup Android container
             container = self._setup_android_container(session, platform)
             
             # Step 2: Download and install APK
-            apk_path = self._download_and_install_apk(session, platform, request.apk_url)
+            apk_path = self._download_and_install_apk(session, platform, apk_url)
             
             # Step 3: Launch app and capture screenshot
             screenshot_url = None
@@ -217,17 +237,14 @@ class AndroidAutomationService:
         
         raise Exception(f"Container {container.container_id} did not become ready within {timeout} seconds")
     
-    def _download_and_install_apk(self, session: AndroidAutomationSession, platform: Platform, apk_url: Optional[str]) -> str:
+    def _download_and_install_apk(self, session: AndroidAutomationSession, platform: Platform, apk_url: str) -> str:
         """Download and install APK into Android container"""
         logger.info(f"Downloading and installing APK for session {session.session_id}")
+        logger.info(f"Platform: {platform.name} ({platform.display_name})")
+        logger.info(f"APK URL: {apk_url}")
         
-        # Determine APK URL
-        if apk_url:
-            download_url = apk_url
-        elif platform.download_url:
-            download_url = platform.download_url
-        else:
-            raise ValueError("No APK URL provided and platform has no download URL")
+        # Use the provided APK URL (already validated in start_automation)
+        download_url = apk_url
         
         # Download APK
         apk_filename = f"{platform.name}_{session.session_id[:8]}.apk"
@@ -271,11 +288,14 @@ class AndroidAutomationService:
                                          platform: Platform, wait_time: int) -> str:
         """Launch app and capture screenshot"""
         logger.info(f"Launching app and capturing screenshot for session {session.session_id}")
+        logger.info(f"Platform: {platform.name} ({platform.display_name})")
         
-        # Launch app
-        app_package = session.app_package or platform.bundle_id
+        # Use app package from session (already derived from platform settings)
+        app_package = session.app_package
         if not app_package:
-            raise ValueError("No app package specified")
+            raise ValueError("No app package specified in session")
+        
+        logger.info(f"Launching app with package: {app_package}")
         
         launch_cmd = [
             "docker", "exec", container.container_name,
