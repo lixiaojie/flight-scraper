@@ -9,7 +9,7 @@ import TaskDetails from './pages/TaskDetails'
 import CreateTask from './pages/CreateTask'
 import Platforms from './pages/Platforms'
 import Settings from './pages/Settings'
-import AndroidAutomation from './pages/AndroidAutomation'
+import MobileAutomation from './pages/MobileAutomation'
 import AndroidInterface from './pages/AndroidInterface'
 import Login from './pages/Login'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -47,7 +47,7 @@ function App() {
                                    <Route path="/tasks/:id" element={<TaskDetails />} />
                                    <Route path="/platforms" element={<Platforms />} />
                                    <Route path="/settings" element={<Settings />} />
-                                   <Route path="/android-automation" element={<AndroidAutomation />} />
+                                   <Route path="/mobile-automation" element={<MobileAutomation />} />
                                    <Route path="/android-interface" element={<AndroidInterface />} />
                           </Routes>
                         </Layout>

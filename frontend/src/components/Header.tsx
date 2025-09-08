@@ -14,7 +14,7 @@ const Header: React.FC = () => {
   const navigation = [
     { name: 'Home', href: '/', icon: Home },
     { name: 'Task Management', href: '/tasks', icon: ClipboardList },
-    { name: 'Android Automation', href: '/android-automation', icon: Smartphone },
+    { name: 'Mobile Automation', href: '/mobile-automation', icon: Smartphone },
     { name: 'Android Interface', href: '/android-interface', icon: Monitor },
     { name: 'System Config', href: '/settings', icon: Settings },
   ]

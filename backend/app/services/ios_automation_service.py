@@ -2,11 +2,11 @@ import os
 import time
 import subprocess
 import logging
+import json
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from app.models.platform import Platform
-from app.models.ios_automation import IOSAutomationSession, IOSContainer
-from app.schemas.ios_automation import IOSAutomationRequest, IOSAutomationResponse
+from app.models.ios_automation import IOSAutomationSession, IOSContainer, AutomationStatus, ContainerStatus
 
 logger = logging.getLogger(__name__)
 
@@ -20,24 +20,24 @@ class IOSAutomationService:
         os.makedirs(self.screenshots_dir, exist_ok=True)
         os.makedirs(self.downloads_dir, exist_ok=True)
     
-    def start_automation(self, request: IOSAutomationRequest) -> IOSAutomationResponse:
+    def start_automation(self, platform_id: int, wait_time: int = 10, capture_screenshot: bool = True) -> Dict[str, Any]:
         """Start iOS automation session"""
-        logger.info(f"Starting iOS automation for platform {request.platform_id}")
+        logger.info(f"Starting iOS automation for platform {platform_id}")
         
         # Get platform information
-        platform = self.db.query(Platform).filter(Platform.id == request.platform_id).first()
+        platform = self.db.query(Platform).filter(Platform.id == platform_id).first()
         if not platform:
-            raise Exception(f"Platform {request.platform_id} not found")
+            raise Exception(f"Platform {platform_id} not found")
         
         if platform.platform_type != "mobile_app":
             raise Exception(f"Platform {platform.name} is not a mobile app")
         
         # Create automation session
         session = IOSAutomationSession(
-            platform_id=request.platform_id,
-            status="running",
-            wait_time=request.wait_time,
-            capture_screenshot=request.capture_screenshot
+            platform_id=platform_id,
+            status=AutomationStatus.RUNNING,
+            wait_time=wait_time,
+            capture_screenshot=capture_screenshot
         )
         self.db.add(session)
         self.db.commit()
@@ -51,53 +51,53 @@ class IOSAutomationService:
                 self._download_and_install_app(session, platform, platform.download_url)
             
             # Wait for app to load
-            if request.wait_time > 0:
-                logger.info(f"Waiting {request.wait_time} seconds for app to load...")
-                time.sleep(request.wait_time)
+            if wait_time > 0:
+                logger.info(f"Waiting {wait_time} seconds for app to load...")
+                time.sleep(wait_time)
             
             # Capture screenshot if requested
             screenshot_url = None
-            if request.capture_screenshot:
+            if capture_screenshot:
                 screenshot_url = self._capture_screenshot(container)
             
             # Update session status
-            session.status = "completed"
+            session.status = AutomationStatus.COMPLETED
             session.screenshot_url = screenshot_url
             session.container_id = container.container_id
             self.db.commit()
             
             logger.info(f"iOS automation completed for session {session.session_id}")
             
-            return IOSAutomationResponse(
-                session_id=session.session_id,
-                status="completed",
-                message="iOS automation completed successfully",
-                screenshot_url=screenshot_url,
-                container_id=container.container_id,
-                logs=None,
-                execution_time=time.time() - session.created_at.timestamp()
-            )
+            return {
+                "session_id": session.session_id,
+                "status": "completed",
+                "message": "iOS automation completed successfully",
+                "screenshot_url": screenshot_url,
+                "container_id": container.container_id,
+                "logs": "iOS automation completed successfully",
+                "execution_time": time.time() - session.created_at.timestamp()
+            }
             
         except Exception as e:
             logger.error(f"iOS automation failed for session {session.session_id}: {str(e)}")
-            session.status = "failed"
+            session.status = AutomationStatus.FAILED
             self.db.commit()
             
-            return IOSAutomationResponse(
-                session_id=session.session_id,
-                status="failed",
-                message=f"iOS automation failed: {str(e)}",
-                screenshot_url=None,
-                container_id=None,
-                logs=None,
-                execution_time=time.time() - session.created_at.timestamp()
-            )
+            return {
+                "session_id": session.session_id,
+                "status": "failed",
+                "message": f"iOS automation failed: {str(e)}",
+                "screenshot_url": None,
+                "container_id": None,
+                "logs": f"Error: {str(e)}",
+                "execution_time": time.time() - session.created_at.timestamp()
+            }
     
     def _get_or_create_container(self, session: IOSAutomationSession) -> IOSContainer:
         """Get or create iOS simulator container"""
         # Check if there's an existing running simulator
         existing_container = self.db.query(IOSContainer).filter(
-            IOSContainer.status == "running"
+            IOSContainer.status == ContainerStatus.RUNNING
         ).first()
         
         if existing_container:
@@ -119,7 +119,7 @@ class IOSAutomationService:
             container_id=device_id,
             container_name=container_name,
             device_type="iPhone 16 Pro",
-            status="running",
+            status=ContainerStatus.RUNNING,
             is_active=True
         )
         self.db.add(container)
@@ -127,7 +127,7 @@ class IOSAutomationService:
         
         session.container_id = container.container_id
         session.container_name = container.container_name
-        session.status = "running"
+        session.status = AutomationStatus.RUNNING
         self.db.commit()
         
         logger.info(f"Created iOS container {container.container_id}")
@@ -145,15 +145,23 @@ class IOSAutomationService:
             if result.returncode != 0:
                 raise Exception(f"Failed to list simulators: {result.stderr}")
             
-            import json
             data = json.loads(result.stdout)
             
-            # Find iPhone 16 Pro simulator
+            # Find iPhone 16 Pro simulator (prefer already booted)
+            device_id = None
             for runtime, devices in data["devices"].items():
                 if "iOS" in runtime:
                     for device in devices:
                         if "iPhone 16 Pro" in device["name"]:
-                            return device["udid"]
+                            if device["state"] == "Booted":
+                                logger.info(f"Found already booted simulator: {device['name']} ({device['udid']})")
+                                return device["udid"]
+                            elif device["state"] == "Shutdown" and device_id is None:
+                                device_id = device["udid"]
+                                logger.info(f"Found shutdown simulator: {device['name']} ({device['udid']})")
+            
+            if device_id:
+                return device_id
             
             raise Exception("No iPhone 16 Pro simulator found")
             
@@ -164,13 +172,29 @@ class IOSAutomationService:
     def _start_simulator(self, device_id: str) -> None:
         """Start iOS simulator"""
         try:
+            # Check if simulator is already booted
+            result = subprocess.run(
+                ["xcrun", "simctl", "list", "devices", "--json"],
+                capture_output=True, text=True
+            )
+            
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for runtime, devices in data["devices"].items():
+                    for device in devices:
+                        if device["udid"] == device_id and device["state"] == "Booted":
+                            logger.info(f"Simulator {device_id} is already booted")
+                            # Open Simulator app
+                            subprocess.run(["open", "-a", "Simulator"], check=False)
+                            return
+            
             # Boot the simulator
             result = subprocess.run(
                 ["xcrun", "simctl", "boot", device_id],
                 capture_output=True, text=True
             )
             
-            if result.returncode != 0:
+            if result.returncode != 0 and "Booted" not in result.stderr:
                 raise Exception(f"Failed to boot simulator: {result.stderr}")
             
             # Open Simulator app
@@ -276,7 +300,7 @@ class IOSAutomationService:
             ).first()
             
             if container:
-                container.status = "stopped"
+                container.status = ContainerStatus.STOPPED
                 container.stopped_at = time.time()
                 self.db.commit()
             
@@ -308,7 +332,7 @@ class IOSAutomationService:
             ).first()
             
             if container:
-                container.status = "running"
+                container.status = ContainerStatus.RUNNING
                 container.started_at = time.time()
                 self.db.commit()
             

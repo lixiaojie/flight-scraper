@@ -54,6 +54,8 @@ services:
       - logs:/app/logs
       - android_downloads:/app/downloads
       - /var/run/docker.sock:/var/run/docker.sock  # Docker socket for Android automation
+      - ./ios_automation_main.py:/app/ios_automation_main.py  # iOS iPhone automation main script
+      - ./ios_host_wrapper.py:/app/ios_host_wrapper.py  # iOS host wrapper script
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   # Celery Worker

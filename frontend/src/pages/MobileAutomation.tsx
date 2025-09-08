@@ -15,7 +15,9 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Apple,
+  Bot
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -37,8 +39,7 @@ interface Platform {
 }
 
 interface AutomationSession {
-  id: number
-  session_id: string
+  id: string
   platform_id: number
   status: 'pending' | 'running' | 'completed' | 'failed'
   container_id?: string
@@ -46,26 +47,25 @@ interface AutomationSession {
   app_package?: string
   app_version?: string
   screenshot_url?: string
-  start_time: string
+  created_at: string
   end_time?: string
   error_message?: string
   execution_time?: number
+  logs?: string
 }
 
 interface Container {
-  id: number
+  id: string
   container_id: string
   container_name: string
-  image_name: string
-  image_tag: string
+  device_type: string
   status: 'stopped' | 'running' | 'error'
-  is_active: boolean
   created_at: string
   started_at?: string
   stopped_at?: string
 }
 
-const AndroidAutomation: React.FC = () => {
+const MobileAutomation: React.FC = () => {
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [sessions, setSessions] = useState<AutomationSession[]>([])
   const [containers, setContainers] = useState<Container[]>([])
@@ -75,6 +75,7 @@ const AndroidAutomation: React.FC = () => {
   const [selectedPlatform, setSelectedPlatform] = useState<number | null>(null)
   const [waitTime, setWaitTime] = useState(30)
   const [captureScreenshot, setCaptureScreenshot] = useState(true)
+  const [automationType, setAutomationType] = useState<'ios' | 'android'>('ios')
   const { showSuccess, showError } = useToastHelpers()
 
   // Fetch platforms
@@ -91,8 +92,9 @@ const AndroidAutomation: React.FC = () => {
   // Fetch automation sessions
   const fetchSessions = async () => {
     try {
-      const response = await api.get('/android-automation/sessions')
-      setSessions(response.data)
+      const endpoint = automationType === 'ios' ? '/ios-automation/sessions' : '/android-automation/sessions'
+      const response = await api.get(endpoint)
+      setSessions(response.data.sessions || response.data || [])
     } catch (error) {
       console.error('Failed to fetch sessions:', error)
       showError('Error', 'Failed to load automation sessions')
@@ -102,9 +104,11 @@ const AndroidAutomation: React.FC = () => {
   // Fetch containers
   const fetchContainers = async () => {
     try {
-      const response = await api.get('/android-automation/containers')
+      const endpoint = automationType === 'ios' ? '/ios-automation/containers' : '/android-automation/containers'
+      const response = await api.get(endpoint)
       // Sort containers by creation date in reverse chronological order (newest first)
-      const sortedContainers = response.data.sort((a: any, b: any) => 
+      const containers = response.data.containers || response.data || []
+      const sortedContainers = containers.sort((a: any, b: any) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       )
       setContainers(sortedContainers)
@@ -125,15 +129,24 @@ const AndroidAutomation: React.FC = () => {
       setIsLoading(true)
       setLoadingMessage('Initializing automation...')
       
-      // Simulate progress updates
-      const progressMessages = [
-        'Initializing automation...',
-        'Setting up Android container...',
-        'Downloading and installing app...',
-        'Launching application...',
-        'Capturing screenshot...',
-        'Finalizing automation...'
-      ]
+      // Simulate progress updates based on automation type
+      const progressMessages = automationType === 'ios' 
+        ? [
+            'Initializing iOS automation...',
+            'Starting iOS Simulator...',
+            'Installing iOS app...',
+            'Launching application...',
+            'Capturing screenshot...',
+            'Finalizing automation...'
+          ]
+        : [
+            'Initializing Android automation...',
+            'Setting up Android container...',
+            'Downloading and installing app...',
+            'Launching application...',
+            'Capturing screenshot...',
+            'Finalizing automation...'
+          ]
       
       let messageIndex = 0
       const progressInterval = setInterval(() => {
@@ -143,7 +156,8 @@ const AndroidAutomation: React.FC = () => {
         }
       }, 2000) // Update every 2 seconds
       
-      const response = await api.post('/android-automation/start', {
+      const endpoint = automationType === 'ios' ? '/ios-automation/start' : '/android-automation/start'
+      const response = await api.post(endpoint, {
         platform_id: selectedPlatform,
         wait_time: waitTime,
         capture_screenshot: captureScreenshot
@@ -167,7 +181,8 @@ const AndroidAutomation: React.FC = () => {
   // Cleanup session
   const cleanupSession = async (sessionId: string) => {
     try {
-      await api.delete(`/android-automation/sessions/${sessionId}`)
+      const endpoint = automationType === 'ios' ? `/ios-automation/sessions/${sessionId}` : `/android-automation/sessions/${sessionId}`
+      await api.delete(endpoint)
       showSuccess('Session Cleaned Up', 'Session and container cleaned up successfully')
       fetchSessions()
       fetchContainers()
@@ -180,7 +195,8 @@ const AndroidAutomation: React.FC = () => {
   // Stop container
   const stopContainer = async (containerId: string) => {
     try {
-      await api.post(`/android-automation/containers/${containerId}/stop`)
+      const endpoint = automationType === 'ios' ? `/ios-automation/containers/${containerId}/stop` : `/android-automation/containers/${containerId}/stop`
+      await api.post(endpoint)
       showSuccess('Container Stopped', 'Container stopped successfully')
       fetchContainers()
     } catch (error: any) {
@@ -192,7 +208,8 @@ const AndroidAutomation: React.FC = () => {
   // Start container
   const startContainer = async (containerId: string) => {
     try {
-      await api.post(`/android-automation/containers/${containerId}/start`)
+      const endpoint = automationType === 'ios' ? `/ios-automation/containers/${containerId}/start` : `/android-automation/containers/${containerId}/start`
+      await api.post(endpoint)
       showSuccess('Container Started', 'Container started successfully')
       fetchContainers()
     } catch (error: any) {
@@ -208,7 +225,8 @@ const AndroidAutomation: React.FC = () => {
     }
 
     try {
-      await api.delete(`/android-automation/containers/${containerId}`)
+      const endpoint = automationType === 'ios' ? `/ios-automation/containers/${containerId}` : `/android-automation/containers/${containerId}`
+      await api.delete(endpoint)
       showSuccess('Container Deleted', 'Container deleted successfully')
       fetchContainers()
     } catch (error: any) {
@@ -221,8 +239,10 @@ const AndroidAutomation: React.FC = () => {
   const viewContainer = async (containerId: string) => {
     try {
       // Get container details
-      const containerResponse = await api.get(`/android-automation/containers`)
-      const container = containerResponse.data.find((c: any) => c.container_id === containerId)
+      const endpoint = automationType === 'ios' ? '/ios-automation/containers' : '/android-automation/containers'
+      const containerResponse = await api.get(endpoint)
+      const container = containerResponse.data.containers?.find((c: any) => c.container_id === containerId) || 
+                       containerResponse.data.find((c: any) => c.container_id === containerId)
       
       if (!container) {
         showError('Error', 'Container not found')
@@ -232,7 +252,8 @@ const AndroidAutomation: React.FC = () => {
       // Get container resources
       let resources = null
       try {
-        const resourcesResponse = await api.get(`/android-automation/containers/${containerId}/resources`)
+        const resourcesEndpoint = automationType === 'ios' ? `/ios-automation/containers/${containerId}/resources` : `/android-automation/containers/${containerId}/resources`
+        const resourcesResponse = await api.get(resourcesEndpoint)
         resources = resourcesResponse.data
       } catch (error) {
         console.log('Could not fetch container resources:', error)
@@ -242,15 +263,11 @@ const AndroidAutomation: React.FC = () => {
       const details = {
         'Container ID': container.container_id,
         'Container Name': container.container_name,
-        'Image': `${container.image_name}:${container.image_tag}`,
+        'Device Type': container.device_type,
         'Status': container.status,
         'Created': new Date(container.created_at).toLocaleString(),
         'Started': container.started_at ? new Date(container.started_at).toLocaleString() : 'Never',
-        'Stopped': container.stopped_at ? new Date(container.stopped_at).toLocaleString() : 'N/A',
-        'CPU Limit': container.cpu_limit || 'Not set',
-        'Memory Limit': container.memory_limit || 'Not set',
-        'Host Port': container.host_port || 'Not set',
-        'Container Port': container.container_port || 'Not set'
+        'Stopped': container.stopped_at ? new Date(container.stopped_at).toLocaleString() : 'N/A'
       }
 
       if (resources) {
@@ -272,12 +289,12 @@ const AndroidAutomation: React.FC = () => {
     }
   }
 
-  // Load data on component mount
+  // Load data on component mount and when automation type changes
   useEffect(() => {
     fetchPlatforms()
     fetchSessions()
     fetchContainers()
-  }, [])
+  }, [automationType])
 
   // Get status badge variant
   const getStatusBadge = (status: string) => {
@@ -312,9 +329,9 @@ const AndroidAutomation: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Android Automation</h1>
+        <h1 className="text-2xl font-bold text-foreground">Mobile Automation</h1>
         <p className="text-muted-foreground">
-          Deploy and test Android applications in containerized environments
+          Deploy and test mobile applications using iOS Simulator and Android containers
         </p>
       </div>
 
@@ -332,15 +349,38 @@ const AndroidAutomation: React.FC = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
-              <Button onClick={() => setShowStartModal(true)}>
-                <Play className="h-4 w-4 mr-2" />
-                Start Automation
-              </Button>
-              <Button variant="outline" onClick={() => { fetchSessions(); fetchContainers(); }}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
+            <div className="space-y-4">
+              {/* Automation Type Selector */}
+              <div className="flex gap-4">
+                <Button
+                  variant={automationType === 'ios' ? 'default' : 'outline'}
+                  onClick={() => setAutomationType('ios')}
+                  className="flex items-center gap-2"
+                >
+                  <Apple className="h-4 w-4" />
+                  iOS Simulator
+                </Button>
+                <Button
+                  variant={automationType === 'android' ? 'default' : 'outline'}
+                  onClick={() => setAutomationType('android')}
+                  className="flex items-center gap-2"
+                >
+                  <Bot className="h-4 w-4" />
+                  Android Simulator
+                </Button>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex gap-4">
+                <Button onClick={() => setShowStartModal(true)}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Start {automationType === 'ios' ? 'iOS' : 'Android'} Automation
+                </Button>
+                <Button variant="outline" onClick={() => { fetchSessions(); fetchContainers(); }}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -356,7 +396,7 @@ const AndroidAutomation: React.FC = () => {
           <CardHeader>
             <CardTitle>Container Status</CardTitle>
             <CardDescription>
-              Monitor Android container status and resources
+              Monitor {automationType === 'ios' ? 'iOS' : 'Android'} container status and resources
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -372,7 +412,7 @@ const AndroidAutomation: React.FC = () => {
                   <thead>
                     <tr className="border-b">
                       <th className="text-left p-3 font-medium text-muted-foreground">Container</th>
-                      <th className="text-left p-3 font-medium text-muted-foreground">Image</th>
+                      <th className="text-left p-3 font-medium text-muted-foreground">Device Type</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Created</th>
                       <th className="text-left p-3 font-medium text-muted-foreground">Latest Start</th>
@@ -395,8 +435,8 @@ const AndroidAutomation: React.FC = () => {
                         </td>
                         <td className="p-3">
                           <div className="text-sm">
-                            <div className="font-medium">{container.image_name}</div>
-                            <div className="text-muted-foreground">{container.image_tag}</div>
+                            <div className="font-medium">{container.device_type}</div>
+                            <div className="text-muted-foreground">iOS Device</div>
                           </div>
                         </td>
                         <td className="p-3">
@@ -505,9 +545,9 @@ const AndroidAutomation: React.FC = () => {
                             <div className="flex items-center gap-3">
                               <Smartphone className="h-4 w-4 text-muted-foreground" />
                               <div>
-                                <div className="font-medium">{session.session_id.substring(0, 8)}...</div>
+                                <div className="font-medium">{session.id.substring(0, 8)}...</div>
                                 <div className="text-sm text-muted-foreground">
-                                  {new Date(session.start_time).toLocaleString()}
+                                  {new Date(session.created_at).toLocaleString()}
                                 </div>
                               </div>
                             </div>
@@ -535,7 +575,12 @@ const AndroidAutomation: React.FC = () => {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => window.open(session.screenshot_url, '_blank')}
+                                onClick={() => {
+                                  const fullUrl = session.screenshot_url.startsWith('http') 
+                                    ? session.screenshot_url 
+                                    : `http://localhost:8000${session.screenshot_url}`
+                                  window.open(fullUrl, '_blank')
+                                }}
                               >
                                 <Eye className="h-4 w-4" />
                               </Button>
@@ -548,7 +593,7 @@ const AndroidAutomation: React.FC = () => {
                               <Button
                                 variant="destructive"
                                 size="sm"
-                                onClick={() => cleanupSession(session.session_id)}
+                                onClick={() => cleanupSession(session.id)}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -569,7 +614,7 @@ const AndroidAutomation: React.FC = () => {
       <Modal
         isOpen={showStartModal}
         onClose={() => setShowStartModal(false)}
-        title="Start Android Automation"
+        title={`Start ${automationType === 'ios' ? 'iOS' : 'Android'} Automation`}
         size="lg"
       >
         <div className="space-y-4">
@@ -700,4 +745,4 @@ const AndroidAutomation: React.FC = () => {
   )
 }
 
-export default AndroidAutomation
+export default MobileAutomation

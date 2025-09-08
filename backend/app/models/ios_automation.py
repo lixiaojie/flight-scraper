@@ -28,6 +28,8 @@ class IOSAutomationSession(Base):
     screenshot_url = Column(String(500), nullable=True)
     wait_time = Column(Integer, default=5)
     capture_screenshot = Column(Boolean, default=True)
+    execution_time = Column(Integer, default=0)
+    logs = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

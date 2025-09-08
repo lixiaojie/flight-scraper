@@ -21,7 +21,7 @@ lxml==4.9.3
 requests==2.31.0
 
 # Mobile Automation
-# Appium-Python-Client==3.1.0  # Uncomment when needed
+Appium-Python-Client==5.2.2
 
 # OCR and Image Processing
 # pytesseract==0.3.10  # Uncomment when needed
