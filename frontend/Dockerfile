@@ -1,7 +1,10 @@
-FROM node:20-alpine
+FROM node:22.20-alpine
 
 # Set working directory
 WORKDIR /app
+
+# Configure npm to use Tencent Cloud mirror
+RUN npm config set registry https://mirrors.cloud.tencent.com/npm/
 
 # Copy package files
 COPY package*.json ./
