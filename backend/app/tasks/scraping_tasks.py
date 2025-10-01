@@ -11,6 +11,7 @@ from app.core.database import SessionLocal
 from app.models.task import Task, TaskStatus
 from app.models.platform import Platform
 from app.models.flight_data import FlightData
+from app.models.android_automation import AndroidAutomationSession, AndroidContainer
 # from app.automation.web_scraper import WebScraper
 # from app.services.data_processor import DataProcessor
 from loguru import logger

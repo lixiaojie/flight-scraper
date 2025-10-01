@@ -6,6 +6,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Configure npm to use Chinese mirrors
+RUN npm config set registry https://registry.npmmirror.com
+
 # Install dependencies
 RUN npm install
 

@@ -9,6 +9,7 @@ from datetime import datetime
 from app.models.user import User
 from app.schemas.auth import UserCreate, UserResponse
 from app.core.security import get_password_hash, verify_password
+import hashlib
 
 
 class AuthService:
@@ -51,10 +52,19 @@ class AuthService:
         if not user:
             return None
         
-        if not verify_password(password, user.hashed_password):
-            return None
+        # 尝试bcrypt验证
+        try:
+            if verify_password(password, user.hashed_password):
+                return user
+        except:
+            pass
         
-        return user
+        # 如果bcrypt失败，尝试SHA256验证
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        if password_hash == user.hashed_password:
+            return user
+        
+        return None
     
     async def update_last_login(self, user_id: int) -> bool:
         """Update user's last login time"""

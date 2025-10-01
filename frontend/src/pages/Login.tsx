@@ -122,14 +122,7 @@ const Login: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Demo credentials */}
-        <div className="mt-6 p-4 bg-muted rounded-lg">
-          <h3 className="text-sm font-medium mb-2">Demo Credentials</h3>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <div>Username: <code className="bg-background px-1 rounded">admin</code></div>
-            <div>Password: <code className="bg-background px-1 rounded">admin123</code></div>
-          </div>
-        </div>
+
       </motion.div>
     </div>
   )
