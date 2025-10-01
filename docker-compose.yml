@@ -120,21 +120,21 @@ services:
 
   # Android Emulator Container (for testing)
   android-emulator:
-    image: budtmo/docker-android:api_30_x86
+    image: budtmo/docker-android:emulator_11.0
     environment:
       - EMULATOR_DEVICE=Samsung Galaxy S10
       - WEB_VNC=true
       - VNC_PASSWORD=password
+      - EMULATOR_OPTS=-no-audio -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -no-metrics -accel off
     ports:
       - "5555:5555"  # ADB port
       - "6080:6080"  # VNC port
     volumes:
       - android_data:/root/.android
     privileged: true
-    devices:
-      - /dev/kvm:/dev/kvm
     cap_add:
       - SYS_ADMIN
+      - NET_ADMIN
     security_opt:
       - seccomp:unconfined
     networks:

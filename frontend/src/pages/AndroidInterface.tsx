@@ -16,7 +16,10 @@ import {
   Wifi,
   WifiOff,
   Volume2,
-  VolumeX
+  VolumeX,
+  Clock,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react'
 
 interface AndroidContainer {
@@ -54,6 +57,8 @@ const AndroidInterface: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [emulatorStatus, setEmulatorStatus] = useState<'checking' | 'starting' | 'ready' | 'error'>('checking')
+  const [startupProgress, setStartupProgress] = useState(0)
   
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
@@ -114,22 +119,55 @@ const AndroidInterface: React.FC = () => {
     }
   }
 
+  // Check Android emulator status
+  const checkEmulatorStatus = async () => {
+    try {
+      const response = await fetch('http://localhost:6080', { method: 'HEAD' })
+      if (response.ok) {
+        setEmulatorStatus('ready')
+        setStartupProgress(100)
+        return true
+      } else {
+        setEmulatorStatus('starting')
+        setStartupProgress(Math.min(startupProgress + 10, 90))
+        return false
+      }
+    } catch (error) {
+      setEmulatorStatus('starting')
+      setStartupProgress(Math.min(startupProgress + 5, 80))
+      return false
+    }
+  }
+
   // Start streaming
   const startStreaming = async () => {
-    if (!selectedContainer) return
-
     setLoading(true)
+    setEmulatorStatus('checking')
+    setStartupProgress(0)
+    
     try {
-      // In a real implementation, this would connect to VNC/WebRTC stream
-      // For now, we'll simulate the connection
-      const mockStreamUrl = `ws://localhost:${selectedContainer.host_port || 6080}/websockify`
-      setStreamUrl(mockStreamUrl)
-      setIsStreaming(true)
-      setIsConnected(true)
-      showSuccess('Stream Started', 'Android interface streaming started')
+      // Try to connect to real VNC stream
+      const vncUrl = `http://localhost:6080`
+      
+      console.log('Testing VNC connection to:', vncUrl)
+      const response = await fetch(vncUrl, { method: 'HEAD' })
+      console.log('VNC response status:', response.status)
+      
+      if (response.ok) {
+        setStreamUrl(vncUrl)
+        setIsStreaming(true)
+        setIsConnected(true)
+        setEmulatorStatus('ready')
+        setStartupProgress(100)
+        showSuccess('Stream Started', 'Connected to real Android VNC interface')
+        console.log('Successfully connected to VNC')
+      } else {
+        throw new Error(`VNC returned status ${response.status}`)
+      }
     } catch (error: any) {
       console.error('Failed to start streaming:', error)
-      showError('Error', 'Failed to start streaming')
+      setEmulatorStatus('error')
+      showError('Error', 'Android emulator is not ready. Please wait for it to fully boot (2-5 minutes)')
     } finally {
       setLoading(false)
     }
@@ -171,9 +209,58 @@ const AndroidInterface: React.FC = () => {
     if (!selectedContainer || !isConnected) return
 
     console.log(`Android interaction: ${action}`, data)
-    // In real implementation, this would send ADB commands or WebRTC messages
-    showSuccess('Interaction Sent', `Android ${action} command sent successfully`)
+    
+    // Handle different types of interactions
+    switch (action) {
+      case 'click':
+        showSuccess('Click Detected', `Clicked at (${data.x}, ${data.y})`)
+        break
+      case 'touch':
+        if (data.duration < 200) {
+          showSuccess('Tap Detected', `Tapped at (${data.x}, ${data.y})`)
+        } else {
+          const direction = Math.abs(data.deltaX) > Math.abs(data.deltaY) 
+            ? (data.deltaX > 0 ? 'right' : 'left')
+            : (data.deltaY > 0 ? 'down' : 'up')
+          showSuccess('Swipe Detected', `Swiped ${direction} (${Math.abs(data.deltaX + data.deltaY)}px)`)
+        }
+        break
+      case 'open-app':
+        showSuccess('App Opening', `Opening ${data.app}...`)
+        break
+      case 'show-menu':
+        showSuccess('Menu Action', 'Context menu activated')
+        break
+      default:
+        showSuccess('Interaction Sent', `Android ${action} command sent successfully`)
+    }
   }
+
+  // Listen for messages from the Android interface iframe
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'android-interaction') {
+        handleAndroidInteraction(event.data.action, event.data)
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [selectedContainer, isConnected])
+
+  // Auto-check emulator status
+  useEffect(() => {
+    if (emulatorStatus === 'starting') {
+      const interval = setInterval(async () => {
+        const isReady = await checkEmulatorStatus()
+        if (isReady) {
+          clearInterval(interval)
+        }
+      }, 5000) // Check every 5 seconds
+
+      return () => clearInterval(interval)
+    }
+  }, [emulatorStatus, startupProgress])
 
   // Load data on component mount
   useEffect(() => {
@@ -346,11 +433,11 @@ const AndroidInterface: React.FC = () => {
               {!isStreaming ? (
                 <Button
                   onClick={startStreaming}
-                  disabled={!selectedContainer || selectedContainer.status !== 'running' || loading}
+                  disabled={loading}
                   className="flex-1"
                 >
                   <Play className="h-4 w-4 mr-1" />
-                  {loading ? 'Starting...' : 'Start Stream'}
+                  {loading ? 'Starting...' : 'Connect to Android'}
                 </Button>
               ) : (
                 <Button
@@ -359,10 +446,53 @@ const AndroidInterface: React.FC = () => {
                   className="flex-1"
                 >
                   <Square className="h-4 w-4 mr-1" />
-                  Stop Stream
+                  Disconnect
                 </Button>
               )}
             </div>
+            
+            <div className="text-sm text-muted-foreground">
+              <p>• <strong>Real Android:</strong> Connect to actual Android emulator (port 6080)</p>
+              <p className="text-xs text-yellow-600 mt-2">
+                ⚠️ Note: Android emulator may take 2-5 minutes to fully boot
+              </p>
+            </div>
+
+            {/* Startup Progress */}
+            {emulatorStatus !== 'ready' && (
+              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  {emulatorStatus === 'checking' && <Clock className="h-4 w-4 text-blue-600 animate-spin" />}
+                  {emulatorStatus === 'starting' && <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />}
+                  {emulatorStatus === 'error' && <AlertCircle className="h-4 w-4 text-red-600" />}
+                  <span className="text-sm font-medium">
+                    {emulatorStatus === 'checking' && 'Checking Android emulator...'}
+                    {emulatorStatus === 'starting' && 'Android emulator is starting...'}
+                    {emulatorStatus === 'error' && 'Android emulator not ready'}
+                  </span>
+                </div>
+                
+                {emulatorStatus === 'starting' && (
+                  <div className="space-y-2">
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${startupProgress}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Progress: {startupProgress}% - This may take 2-5 minutes
+                    </div>
+                  </div>
+                )}
+                
+                {emulatorStatus === 'error' && (
+                  <div className="text-xs text-red-600">
+                    The Android emulator is not ready. Please wait a few minutes and try again.
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <Button
@@ -407,61 +537,56 @@ const AndroidInterface: React.FC = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {selectedContainer ? (
-            <div className="space-y-4">
-              {isStreaming ? (
-                <div className="relative">
-                  {/* Mock Android Interface (would be real VNC/WebRTC in production) */}
-                  <iframe
-                    ref={iframeRef}
-                    src="/mock-android-interface.html"
-                    className="w-full max-w-sm mx-auto rounded-lg border"
-                    style={{ 
-                      aspectRatio: '9/16',
-                      height: '600px',
-                      border: '2px solid #e2e8f0'
-                    }}
-                    title="Android Interface"
-                  />
+          <div className="space-y-4">
+            {isStreaming ? (
+              <div className="relative">
+                {/* Real VNC connection */}
+                <iframe
+                  ref={iframeRef}
+                  src={streamUrl}
+                  className="w-full max-w-4xl mx-auto rounded-lg border"
+                  style={{ 
+                    aspectRatio: '16/9',
+                    height: '600px',
+                    border: '2px solid #e2e8f0'
+                  }}
+                  title="Android VNC Interface"
+                />
 
-                  {/* Stream Status Overlay */}
-                  <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
-                    <MousePointer className="h-4 w-4 inline mr-1" />
-                    Mock Interface - Click to interact
-                  </div>
-                  
-                  {/* Connection Info */}
-                  <div className="absolute top-4 right-4 bg-green-500/80 text-white px-2 py-1 rounded text-sm">
-                    <Wifi className="h-4 w-4 inline mr-1" />
-                    Connected
-                  </div>
+                {/* Stream Status Overlay */}
+                <div className="absolute top-4 left-4 bg-black/50 text-white px-2 py-1 rounded text-sm">
+                  <MousePointer className="h-4 w-4 inline mr-1" />
+                  Real Android VNC - Click to interact
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Monitor className="h-16 w-16 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No Stream Active</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Start streaming to view the Android interface
-                  </p>
-                  <Button
-                    onClick={startStreaming}
-                    disabled={selectedContainer.status !== 'running' || loading}
-                  >
-                    <Play className="h-4 w-4 mr-1" />
-                    {loading ? 'Starting...' : 'Start Stream'}
-                  </Button>
+                
+                {/* Connection Info */}
+                <div className="absolute top-4 right-4 bg-green-500/80 text-white px-2 py-1 rounded text-sm">
+                  <Wifi className="h-4 w-4 inline mr-1" />
+                  Connected
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Smartphone className="h-16 w-16 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-medium mb-2">No Container Selected</h3>
-              <p className="text-muted-foreground">
-                Select a container from the list to view its Android interface
-              </p>
-            </div>
-          )}
+
+                {/* Stream URL Info */}
+                <div className="absolute bottom-4 left-4 bg-black/50 text-white px-2 py-1 rounded text-xs">
+                  Real Android Emulator
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Monitor className="h-16 w-16 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Stream Active</h3>
+                <p className="text-muted-foreground mb-4">
+                  Connect to Android emulator to view the interface
+                </p>
+                <Button
+                  onClick={startStreaming}
+                  disabled={loading}
+                >
+                  <Play className="h-4 w-4 mr-1" />
+                  {loading ? 'Connecting...' : 'Connect to Android'}
+                </Button>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

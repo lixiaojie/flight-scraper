@@ -279,6 +279,16 @@ const AndroidAutomation: React.FC = () => {
     fetchContainers()
   }, [])
 
+  // Auto-refresh containers every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchContainers()
+      fetchSessions()
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   // Get status badge variant
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -457,6 +467,121 @@ const AndroidAutomation: React.FC = () => {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Container Management Dashboard */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Server className="h-5 w-5" />
+              Container Management Dashboard
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchContainers}
+                className="ml-auto"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Refresh
+              </Button>
+            </CardTitle>
+            <CardDescription>
+              Monitor and manage Android containers in real-time
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Server className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-medium">Total Containers</span>
+                </div>
+                <div className="text-2xl font-bold text-blue-600">{containers.length}</div>
+              </div>
+              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Play className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-medium">Running</span>
+                </div>
+                <div className="text-2xl font-bold text-green-600">
+                  {containers.filter(c => c.status === 'running').length}
+                </div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-900/20 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Square className="h-4 w-4 text-gray-600" />
+                  <span className="text-sm font-medium">Stopped</span>
+                </div>
+                <div className="text-2xl font-bold text-gray-600">
+                  {containers.filter(c => c.status === 'stopped').length}
+                </div>
+              </div>
+            </div>
+            
+            {containers.length > 0 ? (
+              <div className="space-y-3">
+                {containers.slice(0, 3).map((container) => (
+                  <div key={container.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+                        <Server className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div>
+                        <div className="font-medium">{container.container_name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {container.image_name}:{container.image_tag}
+                        </div>
+                        <div className="text-xs text-muted-foreground font-mono">
+                          {container.container_id.substring(0, 12)}...
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {getContainerStatusBadge(container.status)}
+                      <div className="flex gap-1">
+                        {container.status === 'running' ? (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => stopContainer(container.container_id)}
+                          >
+                            <Square className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => startContainer(container.container_id)}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => viewContainer(container.container_id)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No containers available</p>
+                <p className="text-sm">Start an automation to create containers</p>
               </div>
             )}
           </CardContent>
