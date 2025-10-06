@@ -1,87 +1,104 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
-import type { User } from '../types'
-import api from '../lib/api'
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-interface AuthContextType {
-  user: User | null
-  login: (username: string, password: string) => Promise<void>
-  logout: () => void
-  isLoading: boolean
-  isAuthenticated: boolean
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  is_active: boolean;
+  is_superuser: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+interface AuthContextType {
+  user: User | null;
+  token: string | null;
+  login: (username: string, password: string) => Promise<boolean>;
+  logout: () => void;
+  loading: boolean;
+}
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    if (token) {
-      fetchUser()
-    } else {
-      setIsLoading(false)
+    // 从localStorage恢复认证状态
+    const savedToken = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    
+    if (savedToken && savedUser) {
+      setToken(savedToken);
+      setUser(JSON.parse(savedUser));
     }
-  }, [])
+    setLoading(false);
+  }, []);
 
-  const fetchUser = async () => {
+  const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      const response = await api.get('/auth/me')
-      setUser(response.data)
-    } catch (error) {
-      localStorage.removeItem('access_token')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const login = async (username: string, password: string) => {
-    try {
-      // Create form data for OAuth2PasswordRequestForm
-      const formData = new FormData()
-      formData.append('username', username)
-      formData.append('password', password)
+      setLoading(true);
       
-      const response = await api.post('/auth/login', formData, {
+      const response = await fetch('http://localhost:8000/api/v1/auth/login', {
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
         },
-      })
-      
-      const { access_token } = response.data
-      localStorage.setItem('access_token', access_token)
-      
-      await fetchUser()
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setToken(data.access_token);
+        setUser(data.user);
+        
+        // 保存到localStorage
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        
+        return true;
+      } else {
+        console.error('登录失败:', response.status, response.statusText);
+        return false;
+      }
     } catch (error) {
-      throw error
+      console.error('登录错误:', error);
+      return false;
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   const logout = () => {
-    localStorage.removeItem('access_token')
-    setUser(null)
-  }
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  };
 
   const value = {
     user,
+    token,
     login,
     logout,
-    isLoading,
-    isAuthenticated: !!user,
-  }
+    loading,
+  };
 
   return (
     <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
-  )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
-}
+  );
+};

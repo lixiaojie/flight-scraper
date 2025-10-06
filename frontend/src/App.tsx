@@ -1,68 +1,40 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ThemeProvider } from './contexts/ThemeContext'
-import { AuthProvider } from './contexts/AuthContext'
-import Layout from './components/Layout'
-import Home from './pages/Home'
-import Tasks from './pages/Tasks'
-import TaskDetails from './pages/TaskDetails'
-import CreateTask from './pages/CreateTask'
-import Platforms from './pages/Platforms'
-import Settings from './pages/Settings'
-import AndroidAutomation from './pages/AndroidAutomation'
-import AndroidInterface from './pages/AndroidInterface'
-import Login from './pages/Login'
-import ProtectedRoute from './components/ProtectedRoute'
-import { Toaster, ToastProvider } from './components/ui/Toaster'
-
-// Create a client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      retry: 1,
-    },
-  },
-})
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import FlightResults from './pages/FlightResults';
+import TaskRecords from './pages/TaskRecords';
+import SystemControl from './components/SystemControl';
+import ProtectedRoute from './components/ProtectedRoute';
+import Layout from './components/Layout';
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <ToastProvider>
-            <Router>
-              <div className="min-h-screen bg-background">
-                <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route
-                    path="/*"
-                    element={
-                      <ProtectedRoute>
-                        <Layout>
-                          <Routes>
-                            <Route path="/" element={<Home />} />
-                            <Route path="/tasks" element={<Tasks />} />
-                            <Route path="/tasks/create" element={<CreateTask />} />
-                                   <Route path="/tasks/:id" element={<TaskDetails />} />
-                                   <Route path="/platforms" element={<Platforms />} />
-                                   <Route path="/settings" element={<Settings />} />
-                                   <Route path="/android-automation" element={<AndroidAutomation />} />
-                                   <Route path="/android-interface" element={<AndroidInterface />} />
-                          </Routes>
-                        </Layout>
-                      </ProtectedRoute>
-                    }
-                  />
-                </Routes>
-                <Toaster />
-              </div>
-            </Router>
-          </ToastProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
-  )
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen bg-gray-50">
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="flight-results" element={<FlightResults />} />
+              <Route path="task-records" element={<TaskRecords />} />
+              <Route path="system" element={<SystemControl />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </div>
+      </Router>
+    </AuthProvider>
+  );
 }
 
-export default App
+export default App;

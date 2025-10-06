@@ -1,0 +1,14 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.36
+pydantic==2.9.2
+python-multipart==0.0.6
+PyJWT==2.8.0
+email-validator==2.1.1
+requests==2.31.0
+lxml==5.2.2
+beautifulsoup4==4.12.2
+selenium==4.15.2
+appium-python-client==2.10.1
+APScheduler==3.10.4
+python-dotenv==1.0.0

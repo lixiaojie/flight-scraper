@@ -206,3 +206,9 @@ dmypy.json
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Ignore large binaries
+assets/*.apk
+*.apk
+results/*
+cache/*

@@ -1,0 +1,18 @@
+# 开发环境依赖 - 使用预编译版本
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+sqlalchemy==2.0.23
+pydantic==2.5.0
+python-multipart==0.0.6
+PyJWT==2.8.0
+email-validator==2.1.0
+requests==2.31.0
+beautifulsoup4==4.12.2
+selenium==4.15.2
+appium-python-client==2.10.1
+APScheduler==3.10.4
+python-dotenv==1.0.0
+
+# 使用预编译的lxml版本
+lxml==4.9.3; platform_machine != "arm64"
+lxml==4.9.3; platform_machine == "arm64" and platform_system == "Darwin"

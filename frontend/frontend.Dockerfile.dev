@@ -1,0 +1,27 @@
+# 开发模式前端Dockerfile - 使用本地依赖缓存
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 复制package文件
+COPY package*.json ./
+
+# 创建node_modules目录并设置权限
+RUN mkdir -p node_modules && chown -R node:node /app
+
+# 使用本地缓存安装依赖（如果存在）
+RUN if [ -d "/cache/node_modules" ]; then \
+        cp -r /cache/node_modules ./node_modules; \
+        npm ci --only=production; \
+    else \
+        npm install; \
+    fi
+
+# 复制源代码
+COPY . .
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动开发服务器
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
