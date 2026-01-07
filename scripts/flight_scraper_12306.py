@@ -11,6 +11,7 @@ import sys
 import requests
 import json
 from datetime import datetime
+import argparse
 from lxml import etree
 from appium import webdriver
 from appium.webdriver.common.appiumby import AppiumBy
@@ -18,24 +19,42 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+# 添加带时间戳的打印函数
+
+
+def tprint(*args, **kwargs):
+    """带时间戳的打印函数"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    print(f"[{timestamp}]", *args, **kwargs)
+
+
+# 新增：编排入口所需模块
+try:
+    from .device_connection import connect_device
+    from .page_capture import navigate_and_search, smart_scroll_and_capture
+    from .parser import parse_and_save, parse_page_source
+except Exception:
+    # 兼容脚本直接运行
+    from device_connection import connect_device
+    from page_capture import navigate_and_search, smart_scroll_and_capture
+    from parser import parse_and_save, parse_page_source, _get_airline_from_code
+
+
 class FlightScraper12306:
     def __init__(self):
-        """初始化航班抓取器"""
+        """模块化编排入口：读取配置，连接设备，导航抓取，解析保存。"""
         self.driver = None
-        self.wait = None
-        # 结果输出目录，默认保存到项目的 results 目录，可通过环境变量覆盖
-        self.output_dir = os.getenv("SCRAPER_OUTPUT_DIR", os.path.join(os.getcwd(), "results"))
+        # 输出与配置
+        self.output_dir = os.getenv(
+            "SCRAPER_OUTPUT_DIR", os.path.join(
+                os.getcwd(), "results"))
         try:
             os.makedirs(self.output_dir, exist_ok=True)
         except Exception:
-            # 如果无法创建，降级为当前目录
             self.output_dir = os.getcwd()
-        # 可选外部参数（来自环境）
         self.from_city = os.getenv("SCRAPER_FROM_CITY", "")
         self.to_city = os.getenv("SCRAPER_TO_CITY", "")
-        # 期望格式: YYYY-MM-DD
         self.depart_date = os.getenv("SCRAPER_DEPART_DATE", "")
-        # API基础URL，用于更新任务状态
         self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
         self.task_id = None
         
@@ -47,6 +66,8 @@ class FlightScraper12306:
         desired_caps = {
             'platformName': 'Android',
             'appium:automationName': 'UiAutomator2',
+            "appium:remoteAdbHost": "host.docker.internal",
+            "appium:remoteAdbPort": "5037",
             'appium:deviceName': 'Android Emulator',
             'appium:platformVersion': '16',
             'appium:noReset': True,
@@ -63,6 +84,8 @@ class FlightScraper12306:
             caps = {
                 'platformName': 'Android',
                 'appium:automationName': 'UiAutomator2',
+                "appium:remoteAdbHost": "host.docker.internal",
+                "appium:remoteAdbPort": "5037",
                 'appium:deviceName': 'Android Emulator',
                 'appium:platformVersion': '16',
                 'appium:noReset': True,
@@ -75,9 +98,11 @@ class FlightScraper12306:
                 caps['appium:udid'] = target_udid
             options = UiAutomator2Options().load_capabilities(caps)
 
-            server_url = os.getenv("APPIUM_SERVER_URL", "http://localhost:4723")
+            server_url = os.getenv(
+                "APPIUM_SERVER_URL",
+                "http://localhost:4723")
             self.driver = webdriver.Remote(server_url, options=options)
-            self.wait = WebDriverWait(self.driver, 10)
+            # 可选：等待器如有需要可在各模块内部创建
             print("✅ Appium驱动初始化成功")
             return True
         except Exception as e:
@@ -102,16 +127,16 @@ class FlightScraper12306:
             }
             response = requests.patch(url, json=data, timeout=5)
             if response.status_code == 200:
-                print(f"✅ 任务状态已更新: {step_name}")
+                tprint(f"✅ 任务状态已更新: {step_name}")
             else:
-                print(f"⚠️ 状态更新失败: {response.status_code}")
+                tprint(f"⚠️ 状态更新失败: {response.status_code}")
         except Exception as e:
-            print(f"⚠️ 更新任务状态时出错: {e}")
+            tprint(f"⚠️ 更新任务状态时出错: {e}")
     
     def set_task_id(self, task_id):
         """设置任务ID"""
         self.task_id = task_id
-        print(f"📋 任务ID已设置: {task_id}")
+        tprint(f"📋 任务ID已设置: {task_id}")
     
     def take_screenshot_and_exit(self, reason):
         """截图并退出"""
@@ -120,13 +145,15 @@ class FlightScraper12306:
         try:
             # 截图
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            screenshot_filename = os.path.join(self.output_dir, f"flight_scraper_error_{timestamp}.png")
+            screenshot_filename = os.path.join(
+                self.output_dir, f"flight_scraper_error_{timestamp}.png")
             self.driver.save_screenshot(screenshot_filename)
             print(f"📸 截图已保存: {screenshot_filename}")
             
             # 保存页面源码
             page_source = self.driver.page_source
-            source_filename = os.path.join(self.output_dir, f"flight_scraper_error_{timestamp}.xml")
+            source_filename = os.path.join(
+                self.output_dir, f"flight_scraper_error_{timestamp}.xml")
             with open(source_filename, 'w', encoding='utf-8') as f:
                 f.write(page_source)
             print(f"📄 页面源码已保存: {source_filename}")
@@ -138,424 +165,7 @@ class FlightScraper12306:
         if self.driver:
             self.driver.quit()
     
-    def step1_launch_12306(self):
-        """步骤1: 重启12306应用，确保从首页开始"""
-        print("\n📱 步骤1: 重启12306应用")
-        self.update_task_status("重启12306应用")
-        
-        try:
-            # 先终止应用，确保从首页开始
-            print("🔄 终止12306应用...")
-            try:
-                self.driver.terminate_app("com.MobileTicket")
-                print("✅ 应用已终止")
-            except Exception as e:
-                print(f"⚠️ 终止应用时出错: {e}")
-            
-            self.wait_step(1)  # 等待1秒
-            
-            # 重新启动应用
-            print("🚀 重新启动12306应用...")
-            self.driver.activate_app("com.MobileTicket")
-            print("✅ 12306应用已重启")
-            
-            self.wait_step()
-            return True
-            
-        except Exception as e:
-            print(f"❌ 重启12306失败: {e}")
-            return False
-    
-    def step2_check_homepage(self):
-        """步骤2: 检查主页面"""
-        print("\n🏠 步骤2: 检查主页面（含重试/广告处理）")
-        self.update_task_status("检查主页面")
-
-        max_attempts = 6  # 增加重试次数，覆盖首次冷启动广告/引导页
-        for attempt in range(1, max_attempts + 1):
-            try:
-                # 优先尝试关闭可能的广告或引导弹窗
-                try:
-                    for acc_id in [
-                        "跳过", "关闭", "以后再说", "我知道了", "同意并继续"
-                    ]:
-                        els = self.driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{acc_id}")')
-                        if els:
-                            els[0].click()
-                            print(f"🧹 关闭了弹窗: {acc_id}")
-                            self.wait_step(1)
-                            break
-                except Exception:
-                    pass
-
-                # 检查主页面容器
-                home_container = self.driver.find_element(AppiumBy.ID, "com.MobileTicket:id/ticket_home_content_container")
-                print("✅ 主页面容器已找到")
-                self.wait_step()
-                return True
-
-            except NoSuchElementException:
-                print(f"⚠️ 第{attempt}/{max_attempts}次：主页面未就绪，等待后重试…")
-                self.wait_step(2)
-                continue
-            except Exception as e:
-                print(f"❌ 检查主页面失败: {e}")
-                self.wait_step(2)
-                continue
-
-        print("❌ 多次尝试仍未进入主页面")
-        return False
-    
-    def step3_click_air_rail_transfer(self):
-        """步骤3: 点击空铁联运按钮（带循环重试）"""
-        print("\n🚄 步骤3: 点击空铁联运按钮")
-        self.update_task_status("点击空铁联运")
-        
-        max_attempts = 5
-        for attempt in range(1, max_attempts + 1):
-            print(f"🔄 尝试 {attempt}/{max_attempts}")
-            
-            try:
-                # 点击空铁联运按钮
-                air_rail_button = self.driver.find_element(AppiumBy.ACCESSIBILITY_ID, "空铁联运")
-                air_rail_button.click()
-                print("✅ 空铁联运按钮已点击")
-                
-                self.wait_step()
-                return True
-                
-            except NoSuchElementException:
-                print(f"⚠️ 第{attempt}次尝试：空铁联运按钮未找到")
-                
-                if attempt < max_attempts:
-                    print("🔄 退回到步骤2，重新检查主页面...")
-                    # 退回到步骤2
-                    if not self.step2_check_homepage():
-                        print("❌ 主页面检查失败")
-                        return False
-                    self.wait_step(2)  # 等待2秒后重试
-                else:
-                    print("❌ 5次尝试后仍未找到空铁联运按钮")
-                    # 截图并结束
-                    self.take_screenshot_and_exit("空铁联运按钮未找到")
-                    return False
-                    
-            except Exception as e:
-                print(f"❌ 第{attempt}次尝试失败: {e}")
-                if attempt >= max_attempts:
-                    self.take_screenshot_and_exit(f"点击空铁联运失败: {e}")
-                    return False
-                self.wait_step(2)
-        
-        return False
-    
-    def step4_check_air_rail_page(self):
-        """步骤4: 检查空铁联运页面或航班动态选项"""
-        print("\n✈️ 步骤4: 检查空铁联运页面或航班动态选项")
-        self.update_task_status("检查空铁联运页面")
-        
-        try:
-            # 首先尝试检查空铁联运首页
-            try:
-                air_rail_page = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                       'new UiSelector().text("空铁联运首页")')
-                print("✅ 空铁联运首页已找到")
-                self.wait_step()
-                return True
-            except NoSuchElementException:
-                print("⚠️ 空铁联运首页未找到，尝试查找航班动态选项...")
-            
-            # 如果空铁联运首页未找到，尝试查找航班动态选项
-            try:
-                flight_dynamic = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                       'new UiSelector().text("航班动态")')
-                print("✅ 航班动态选项已找到")
-                self.wait_step()
-                return True
-            except NoSuchElementException:
-                print("❌ 航班动态选项也未找到")
-                return False
-                
-        except Exception as e:
-            print(f"❌ 检查页面失败: {e}")
-            return False
-
-    def step4a_select_from_city(self):
-        """步骤4A: 选择出发城市（占位，后续根据页面结构完善）"""
-        if not self.from_city:
-            print("ℹ️ 未提供出发城市，跳过选择")
-            return True
-        print(f"\n🏷️ 步骤4A: 选择出发城市 -> {self.from_city}（占位实现）")
-        self.update_task_status("选择出发城市")
-        # TODO: 根据页面具体元素完成点击与选择逻辑
-        self.wait_step(1)
-        return True
-
-    def step4b_select_to_city(self):
-        """步骤4B: 选择到达城市（占位，后续根据页面结构完善）"""
-        if not self.to_city:
-            print("ℹ️ 未提供到达城市，跳过选择")
-            return True
-        print(f"\n🏷️ 步骤4B: 选择到达城市 -> {self.to_city}（占位实现）")
-        self.update_task_status("选择到达城市")
-        # TODO: 根据页面具体元素完成点击与选择逻辑
-        self.wait_step(1)
-        return True
-
-    def step4c_select_date(self):
-        """步骤4C: 选择出发日期（根据页面展示文案拼装并点击）
-        规则：
-        - 先读取当前页面源码，收集可见文本
-        - 目标日期若为今天/明天/后天 -> 期望文案为 "M月D日今天|明天|后天"
-        - 否则 -> 期望文案为 "M月D日周X"（X=一..日）
-        - 在可见文本中匹配优先级：今天/明天/后天 > 周X
-        - 找到后使用 exact text 点击；若未找到，退化到按日(instance=0/1)策略
-        """
-        print("\n📅 步骤4C: 选择出发日期（按展示文案匹配）")
-        self.update_task_status("选择出发日期")
-        try:
-            from datetime import date, datetime as dt, timedelta
-            today = date.today()
-            weekday_map = {0: "周一", 1: "周二", 2: "周三", 3: "周四", 4: "周五", 5: "周六", 6: "周日"}
-
-            # 打开日期浮层：优先尝试点击包含"月"且含今日的按钮，如果失败不报错继续
-            try:
-                current_label = f"{today.month}月{today.day}日{weekday_map[today.weekday()]}"
-                btn = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{current_label}")')
-                btn.click()
-                print(f"✅ 已点击当前日期按钮: {current_label}")
-                self.wait_step(1)
-            except Exception:
-                pass
-
-            if not self.depart_date:
-                print("ℹ️ 未提供出发日期，跳过选择")
-                return True
-
-            try:
-                target = dt.strptime(self.depart_date, "%Y-%m-%d").date()
-            except Exception:
-                print(f"⚠️ 出发日期格式非法: {self.depart_date}")
-                return True
-
-            # 生成候选展示文案
-            month_day = f"{target.month}月{target.day}日"
-            delta = (target - today).days
-            candidates = []
-            if delta == 0:
-                candidates.append(f"{month_day}今天")
-            elif delta == 1:
-                candidates.append(f"{month_day}明天")
-            elif delta == 2:
-                candidates.append(f"{month_day}后天")
-            # 周几文案始终作为候选
-            candidates.append(f"{month_day}{weekday_map[target.weekday()]}")
-
-            # 提取页面文本
-            page = self.driver.page_source
-            visible_texts = set()
-            try:
-                root = etree.fromstring(page.encode('utf-8'))
-                for el in root.xpath('//*[@text]'):
-                    t = el.get('text') or ''
-                    if t:
-                        visible_texts.add(t)
-            except Exception:
-                pass
-
-            # 依次尝试候选文案点击
-            for label in candidates:
-                if label in visible_texts:
-                    try:
-                        el = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{label}")')
-                        el.click()
-                        print(f"✅ 已选择目标日期: {label}")
-                        self.wait_step(1)
-                        return True
-                    except Exception as e:
-                        print(f"⚠️ 文案存在但点击失败: {label}, {e}")
-
-            # 退化策略：按日(instance)点击
-            instance_idx = 0 if (target.year == today.year and target.month == today.month) else 1
-            try:
-                el = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{target.day}").instance({instance_idx})')
-                el.click()
-                print(f"✅ 退化策略选择日期: {self.depart_date} (text={target.day}, instance={instance_idx})")
-                self.wait_step(1)
-                return True
-            except Exception as e:
-                print(f"❌ 退化策略失败，无法选择日期: {e}")
-                return False
-
-        except Exception as e:
-            print(f"❌ 日期选择流程异常: {e}")
-            return False
-   
-    def step5_click_search(self):
-        """步骤5: 点击查询按钮（带页面刷新）"""
-        print("\n🔍 步骤5: 点击查询按钮")
-        self.update_task_status("点击查询按钮")
-        
-        max_attempts = 3
-        for attempt in range(1, max_attempts + 1):
-            print(f"🔄 尝试 {attempt}/{max_attempts}")
-            
-            try:
-                # 点击查询按钮
-                search_button = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                      'new UiSelector().text("查询")')
-                search_button.click()
-                print("✅ 查询按钮已点击")
-                
-                self.wait_step()
-                return True
-                
-            except NoSuchElementException:
-                print(f"⚠️ 第{attempt}次尝试：查询按钮未找到")
-                
-                if attempt < max_attempts:
-                    print("🔄 刷新当前页面...")
-                    try:
-                        # 刷新页面
-                        self.driver.refresh()
-                        print("✅ 页面已刷新")
-                        self.wait_step(2)  # 等待2秒让页面加载
-                    except Exception as e:
-                        print(f"⚠️ 页面刷新失败: {e}")
-                        # 尝试其他刷新方法
-                        try:
-                            self.driver.back()
-                            self.wait_step(1)
-                            self.driver.forward()
-                            print("✅ 使用前进后退刷新页面")
-                        except Exception as e2:
-                            print(f"⚠️ 前进后退刷新也失败: {e2}")
-                else:
-                    print("❌ 3次尝试后仍未找到查询按钮")
-                    # 截图并结束
-                    self.take_screenshot_and_exit("查询按钮未找到")
-                    return False
-                    
-            except Exception as e:
-                print(f"❌ 第{attempt}次尝试失败: {e}")
-                if attempt >= max_attempts:
-                    self.take_screenshot_and_exit(f"点击查询失败: {e}")
-                    return False
-                self.wait_step(2)
-        
-        return False
-    
-    def step6_check_flight_list(self):
-        """步骤6: 检查航班列表页面并设置价格排序"""
-        print("\n📋 步骤6: 检查航班列表页面")
-        self.update_task_status("检查航班列表页面")
-        
-        try:
-            # 检查航班列表页面
-            flight_list = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                'new UiSelector().text("航班列表")')
-            print("✅ 航班列表页面已找到")
-            
-            # 点击价格排序按钮
-            print("🔄 设置价格排序（从低到高）...")
-            try:
-                price_button = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                     'new UiSelector().text("价格")')
-                price_button.click()
-                print("✅ 价格排序按钮已点击")
-                time.sleep(2)
-                
-                # 检查是否切换为"价格 低-高"
-                try:
-                    price_sorted = self.driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
-                                                         'new UiSelector().text("价格 低-高")')
-                    print("✅ 价格排序已设置为从低到高")
-                except:
-                    print("⚠️ 价格排序状态未确认，继续执行")
-                    
-            except Exception as e:
-                print(f"⚠️ 价格排序设置失败: {e}，继续执行")
-            
-            self.wait_step()
-            return True
-            
-        except NoSuchElementException:
-            print("❌ 航班列表页面未找到")
-            return False
-        except Exception as e:
-            print(f"❌ 检查航班列表失败: {e}")
-            return False
-    
-    def step7_extract_page_source(self):
-        """步骤7: 提取页面源码"""
-        print("\n📄 步骤7: 提取页面源码")
-        self.update_task_status("提取页面源码")
-        
-        try:
-            # 等待页面完全加载
-            print("⏳ 等待页面完全加载...")
-            time.sleep(5)
-            
-            # 智能滚动页面以加载更多内容
-            print("🔄 智能滚动页面以加载更多航班信息...")
-            try:
-                previous_content = ""
-                no_change_count = 0
-                max_scrolls = 10  # 最大滚动次数
-                
-                for i in range(max_scrolls):
-                    print(f"🔄 第{i+1}次滚动...")
-                    
-                    # 向上滚动
-                    self.driver.swipe(500, 1500, 500, 500, 1000)
-                    time.sleep(1)
-                    
-                    # 向下滚动
-                    self.driver.swipe(500, 500, 500, 1500, 1000)
-                    time.sleep(1)
-                    
-                    # 获取当前页面内容进行对比
-                    current_content = self.driver.page_source
-                    
-                    # 检查内容是否有变化
-                    if current_content == previous_content:
-                        no_change_count += 1
-                        print(f"⚠️ 第{no_change_count}次检测到内容无变化")
-                        
-                        # 如果连续两次滚动后内容无变化，终止滚动
-                        if no_change_count >= 2:
-                            print("✅ 检测到内容无变化，终止滚动")
-                            break
-                    else:
-                        no_change_count = 0
-                        print(f"✅ 检测到新内容，继续滚动")
-                    
-                    previous_content = current_content
-                
-                # 最后再向上滚动到顶部
-                self.driver.swipe(500, 1500, 500, 500, 1000)
-                time.sleep(2)
-                
-            except Exception as e:
-                print(f"⚠️ 滚动失败: {e}")
-                pass
-            
-            # 获取页面源码
-            page_source = self.driver.page_source
-            print(f"✅ 页面源码已提取，长度: {len(page_source)} 字符")
-            
-            # 保存页面源码到文件
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = os.path.join(self.output_dir, f"flight_page_source_{timestamp}.xml")
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(page_source)
-            print(f"💾 页面源码已保存到: {filename}")
-            
-            return page_source
-            
-        except Exception as e:
-            print(f"❌ 提取页面源码失败: {e}")
-            return None
+    # 旧版步骤方法已迁移至 page_capture 模块
     
     def parse_flight_info(self, page_source):
         """解析航班信息"""
@@ -580,7 +190,8 @@ class FlightScraper12306:
             
             # 如果正则表达式方法失败，尝试XPath方法
             print("🔄 尝试XPath方法解析航班信息...")
-            root = etree.fromstring(page_source.encode('utf-8') if isinstance(page_source, str) else page_source)
+            root = etree.fromstring(page_source.encode(
+                'utf-8') if isinstance(page_source, str) else page_source)
             
             # 更广泛的XPath选择器
             xpath_selectors = [
@@ -634,7 +245,14 @@ class FlightScraper12306:
             }
             
             # 提取文本内容（兼容 @text 与节点文本）
-            text = (element.get('text', '') or (''.join(element.itertext()) if hasattr(element, 'itertext') else '')).strip()
+            text = (
+                element.get(
+                    'text',
+                    '') or (
+                    ''.join(
+                        element.itertext()) if hasattr(
+                        element,
+                        'itertext') else '')).strip()
             
             # 使用正则表达式提取航班信息
             # 航班号模式: 如 CA1234, MU5678，支持前置中文航空公司名
@@ -667,14 +285,15 @@ class FlightScraper12306:
                     minutes = duration_minutes % 60
                     
                     flight_info['flight_duration'] = f"{hours}h{minutes}m"
-                except:
+                except BaseException:
                     pass
             
             # 价格模式: 支持 ￥/¥/CNY 与 元，整数或小数
             price_pattern = r'(?:[¥￥]|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)|([0-9]+(?:\.[0-9]{1,2})?)\s*元'
             price_match = re.search(price_pattern, text)
             if price_match:
-                flight_info['price'] = price_match.group(1) or price_match.group(2)
+                flight_info['price'] = price_match.group(
+                    1) or price_match.group(2)
             
             # 出发日期提取
             date_patterns = [
@@ -696,20 +315,42 @@ class FlightScraper12306:
                 if depart_date:
                     flight_info['departure_date'] = depart_date
 
-            # 机场信息（需要根据实际页面结构调整）
+            # 机场与航站楼信息（需要根据实际页面结构调整）
             airport_pattern_iata = r'([A-Z]{3})'
             airports = re.findall(airport_pattern_iata, text)
             if len(airports) >= 2:
                 flight_info['departure_airport'] = airports[0]
                 flight_info['arrival_airport'] = airports[1]
+                flight_info['departure_airport_name'] = self.get_airport_name(
+                    airports[0])
+                flight_info['arrival_airport_name'] = self.get_airport_name(
+                    airports[1])
+                # 航站楼：优先从整页源码匹配（依赖机场中文名）
+                dep_name = flight_info['departure_airport_name']
+                arr_name = flight_info['arrival_airport_name']
+                dep_t, arr_t = self.extract_terminals_from_page(
+                    page_source, dep_name, arr_name)
+                flight_info['departure_terminal'] = dep_t
+                flight_info['arrival_terminal'] = arr_t
             else:
                 # 简单中文提取（例如 “上海 虹桥 出发” / “北京 首都 到达”）
-                dep_match = re.search(r'(出发|始发)[\s\S]{0,6}([\u4e00-\u9fa5]{2,8})', text)
-                arr_match = re.search(r'(到达|抵达)[\s\S]{0,6}([\u4e00-\u9fa5]{2,8})', text)
+                dep_match = re.search(
+                    r'(出发|始发)[\s\S]{0,6}([\u4e00-\u9fa5]{2,8})', text)
+                arr_match = re.search(
+                    r'(到达|抵达)[\s\S]{0,6}([\u4e00-\u9fa5]{2,8})', text)
                 if dep_match:
                     flight_info['departure_airport'] = dep_match.group(2)
                 if arr_match:
                     flight_info['arrival_airport'] = arr_match.group(2)
+                flight_info['departure_airport_name'] = flight_info['departure_airport']
+                flight_info['arrival_airport_name'] = flight_info['arrival_airport']
+                # 航站楼：优先从整页源码匹配（依赖机场中文名）
+                dep_name = flight_info.get('departure_airport_name', '')
+                arr_name = flight_info.get('arrival_airport_name', '')
+                dep_t, arr_t = self.extract_terminals_from_page(
+                    page_source, dep_name, arr_name)
+                flight_info['departure_terminal'] = dep_t
+                flight_info['arrival_terminal'] = arr_t
 
             # 航空公司中文别名到代码映射
             airline_alias = {
@@ -751,7 +392,8 @@ class FlightScraper12306:
         try:
             # 使用正则表达式直接从页面源码中提取
             # 航班号（带中文别名也可）
-            flight_numbers = re.findall(r'(?:[\u4e00-\u9fa5]{2,6})?\s*([A-Z]{2}\d{3,4})', page_source)
+            flight_numbers = re.findall(
+                r'(?:[\u4e00-\u9fa5]{2,6})?\s*([A-Z]{2}\d{3,4})', page_source)
             print(f"📊 找到 {len(flight_numbers)} 个航班号")
             
             # 时间
@@ -760,7 +402,9 @@ class FlightScraper12306:
             
             # 价格（￥/元/CNY，整数或小数）
             prices = []
-            for m in re.finditer(r'(?:[¥￥]|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)|([0-9]+(?:\.[0-9]{1,2})?)\s*元', page_source):
+            for m in re.finditer(
+                r'(?:[¥￥]|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)|([0-9]+(?:\.[0-9]{1,2})?)\s*元',
+                    page_source):
                 prices.append(m.group(1) or m.group(2))
             print(f"📊 找到 {len(prices)} 个价格")
             
@@ -769,14 +413,16 @@ class FlightScraper12306:
             print(f"📊 找到 {len(airports)} 个机场代码")
             
             # 出发日期
-            dates = re.findall(r'(\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})', page_source)
+            dates = re.findall(
+                r'(\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})',
+                page_source)
             print(f"📊 找到 {len(dates)} 个日期")
             
             # 组合航班信息 - 处理所有找到的时间对，即使没有航班号
             time_pairs = []
             for i in range(0, len(times), 2):
                 if i + 1 < len(times):
-                    time_pairs.append((times[i], times[i+1]))
+                    time_pairs.append((times[i], times[i + 1]))
             
             max_flights = min(len(time_pairs), 20)  # 最多处理20个航班
             print(f"🔄 找到 {len(time_pairs)} 个时间对，处理前 {max_flights} 个航班...")
@@ -787,7 +433,8 @@ class FlightScraper12306:
                     flight_num = flight_numbers[i]
                 else:
                     # 跳过没有航班号的不规范航班（通常是第5个及以后的航班）
-                    print(f"⚠️ 跳过第{i+1}个航班：无标准航班号，时间 {dep_time} -> {arr_time}")
+                    print(
+                        f"⚠️ 跳过第{i + 1}个航班：无标准航班号，时间 {dep_time} -> {arr_time}")
                     continue
                 
                 # 验证航班号格式
@@ -802,14 +449,17 @@ class FlightScraper12306:
                     'airline': self.get_airline_from_code(flight_num),
                     'flight_number': flight_num,
                     'is_shared_flight': self.detect_shared_flight(flight_num),
-                    'aircraft_type': self.extract_aircraft_type(simple_context),
-                    'departure_date': dates[0] if dates else '',  # 使用第一个找到的日期
+                    'aircraft_type': self.extract_aircraft_type_from_page(page_source, flight_num),
+                    # 优先使用环境变量中的出发日期，如果环境变量为空则从页面提取
+                    'departure_date': self.depart_date if self.depart_date else (dates[0] if dates else ''),
                     'departure_time': dep_time,
-                    'departure_airport': airports[i*2] if i*2 < len(airports) else '',
-                    'departure_city': self.get_city_from_airport(airports[i*2] if i*2 < len(airports) else ''),
+                    'departure_airport': airports[i * 2] if i * 2 < len(airports) else '',
+                    # 优先使用环境变量中的出发城市，如果环境变量为空则从机场代码提取
+                    'departure_city': self.from_city if self.from_city else (self.get_city_from_airport(airports[i * 2] if i * 2 < len(airports) else '')),
                     'arrival_time': arr_time,
-                    'arrival_airport': airports[i*2+1] if i*2+1 < len(airports) else '',
-                    'arrival_city': self.get_city_from_airport(airports[i*2+1] if i*2+1 < len(airports) else ''),
+                    'arrival_airport': airports[i * 2 + 1] if i * 2 + 1 < len(airports) else '',
+                    # 优先使用环境变量中的到达城市，如果环境变量为空则从机场代码提取
+                    'arrival_city': self.to_city if self.to_city else (self.get_city_from_airport(airports[i * 2 + 1] if i * 2 + 1 < len(airports) else '')),
                     'flight_duration': '',
                     'has_stopover': self.detect_stopover(simple_context),
                     'stopover_city': self.extract_stopover_city(simple_context),
@@ -822,12 +472,34 @@ class FlightScraper12306:
                     'source': '12306',
                     'status': 'active'
                 }
+
+                # 中文机场名
+                if flight_info['departure_airport']:
+                    flight_info['departure_airport_name'] = self.get_airport_name(
+                        flight_info['departure_airport'])
+                else:
+                    flight_info['departure_airport_name'] = ''
+                if flight_info['arrival_airport']:
+                    flight_info['arrival_airport_name'] = self.get_airport_name(
+                        flight_info['arrival_airport'])
+                else:
+                    flight_info['arrival_airport_name'] = ''
+
+                # 航站楼：优先从整页源码匹配（依赖机场中文名）
+                dep_name = flight_info.get('departure_airport_name', '')
+                arr_name = flight_info.get('arrival_airport_name', '')
+                dep_t, arr_t = self.extract_terminals_from_page(
+                    page_source, dep_name, arr_name)
+                flight_info['departure_terminal'] = dep_t
+                flight_info['arrival_terminal'] = arr_t
                 
                 # 计算飞行时长
                 if flight_info['departure_time'] and flight_info['arrival_time']:
                     try:
-                        dep_hour, dep_min = map(int, flight_info['departure_time'].split(':'))
-                        arr_hour, arr_min = map(int, flight_info['arrival_time'].split(':'))
+                        dep_hour, dep_min = map(
+                            int, flight_info['departure_time'].split(':'))
+                        arr_hour, arr_min = map(
+                            int, flight_info['arrival_time'].split(':'))
                         
                         dep_minutes = dep_hour * 60 + dep_min
                         arr_minutes = arr_hour * 60 + arr_min
@@ -841,14 +513,15 @@ class FlightScraper12306:
                         minutes = duration_minutes % 60
                         
                         flight_info['flight_duration'] = f"{hours}h{minutes}m"
-                    except:
+                    except BaseException:
                         pass
                 
                 # 设置航空公司
                 flight_info['airline'] = self.get_airline_from_code(flight_num)
                 
                 flights.append(flight_info)
-                print(f"✅ 航班 {i+1}: {flight_info['flight_number']} - {flight_info['departure_time']} -> {flight_info['arrival_time']} - {flight_info['price']}元")
+                print(
+                    f"✅ 航班 {i + 1}: {flight_info['flight_number']} - {flight_info['departure_time']} -> {flight_info['arrival_time']} - {flight_info['price']}元")
             
         except Exception as e:
             print(f"❌ 备用方法提取失败: {e}")
@@ -917,33 +590,136 @@ class FlightScraper12306:
         return '否'
     
     def extract_aircraft_type(self, context):
-        """提取飞机型号"""
-        aircraft_patterns = [
-            r'([A-Z]\d{3})',  # 如 A320, B737
-            r'(空客\w+)',     # 空客系列
-            r'(波音\w+)',     # 波音系列
-            r'(A\d{3})',      # 空客型号
-            r'(B\d{3})',      # 波音型号
+        """提取飞机型号（更严格，避免把航班号片段误识别为机型）"""
+        if not context:
+            return ''
+        patterns = [
+            r'(空客\s*\d{3}(?:\([^)]+\))?)',      # 空客321(窄) / 空客321(中)
+            r'(波音\s*[A-Za-z0-9]{2,6}(?:\([^)]+\))?)',  # 波音7MA 等
+            r'\b(A\d{3})\b',                        # A320/A321
+            r'\b(B\d{3})\b',                        # B737/B738
         ]
-        
-        for pattern in aircraft_patterns:
-            match = re.search(pattern, context)
-            if match:
-                return match.group(1)
+        for pattern in patterns:
+            m = re.search(pattern, context)
+            if m:
+                return m.group(1).strip()
         return ''
+
+    def extract_aircraft_type_from_page(self, page_source, flight_number=None):
+        """从整页源码中提取机型，优先在航班号附近窗口中搜索。"""
+        try:
+            text = page_source or ''
+            window = text
+            if flight_number and flight_number in text:
+                idx = text.find(flight_number)
+                start = max(0, idx - 300)
+                end = min(len(text), idx + 400)
+                window = text[start:end]
+            # 先在窗口内找
+            t = self.extract_aircraft_type(window)
+            if t:
+                return t
+            # 全局兜底
+            return self.extract_aircraft_type(text)
+        except Exception:
+            return ''
     
+    def _load_airport_config(self):
+        """加载机场配置文件"""
+        cfg_path = os.path.join(
+            os.path.dirname(__file__),
+            'config',
+            'airports.json')
+        try:
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self._airport_names = data.get('airportNames', {})
+                self._airport_cities = data.get('airportCities', {})
+        except Exception:
+            self._airport_names = {}
+            self._airport_cities = {}
+
     def get_city_from_airport(self, airport_code):
-        """根据机场代码获取城市名称"""
-        airport_city_map = {
-            'PEK': '北京', 'SHA': '上海', 'PVG': '上海', 'CAN': '广州', 'SZX': '深圳',
-            'CTU': '成都', 'XIY': '西安', 'KMG': '昆明', 'HGH': '杭州', 'NKG': '南京',
-            'TSN': '天津', 'DLC': '大连', 'SJW': '石家庄', 'TYN': '太原', 'HET': '呼和浩特',
-            'HRB': '哈尔滨', 'CGQ': '长春', 'SHE': '沈阳', 'URC': '乌鲁木齐',
-            'UTF': '乌鲁木齐', 'QAA': '北京', 'AAB': '北京', 'JRU': '上海',
-            'CGJ': '上海', 'BKU': '广州', 'DIR': '深圳', 'AAA': '成都',
-            'AAS': '西安', 'UVO': '昆明'
-        }
-        return airport_city_map.get(airport_code, '')
+        """根据机场代码获取城市名称（配置驱动）"""
+        if not hasattr(self, '_airport_cities'):
+            self._load_airport_config()
+        return self._airport_cities.get(airport_code, '')
+
+    def get_airport_name(self, code):
+        """根据机场代码获取中文机场名称（尽量覆盖常见与页面中出现的别名代码）"""
+        if not hasattr(self, '_airport_names'):
+            self._load_airport_config()
+        if not code:
+            return ''
+        return self._airport_names.get(code, f"{code}机场")
+
+    def extract_terminals_from_page(
+            self,
+            page_source,
+            dep_airport_name,
+            arr_airport_name):
+        """从整页源码中提取航站楼信息，并尽量与出发/到达机场名称匹配。
+
+        形态示例："上海浦东T2"、"上海虹桥T2"、"北京首都T3"、"T1"、"1号航站楼"
+        返回: (dep_terminal, arr_terminal)，若无法识别则为空字符串
+        """
+        try:
+            text = page_source
+            # 中文+T数字候选
+            cand = re.findall(r'([\u4e00-\u9fa5]{2,10}?(?:机场)?T\d)', text)
+            # 去重保持顺序
+            seen = set()
+            candidates = []
+            for c in cand:
+                if c not in seen:
+                    seen.add(c)
+                    candidates.append(c)
+
+            dep_terminal = ''
+            arr_terminal = ''
+
+            def norm(name: str) -> str:
+                return (name or '').replace('国际', '').replace('机场', '')
+
+            n_dep = norm(dep_airport_name)
+            n_arr = norm(arr_airport_name)
+
+            # 优先按机场中文名匹配
+            for c in candidates:
+                if n_dep and any(k in c for k in (n_dep, n_dep[:2])):
+                    dep_terminal = c
+                    break
+            for c in candidates:
+                if n_arr and any(k in c for k in (n_arr, n_arr[:2])):
+                    arr_terminal = c
+                    break
+
+            # 若仍为空，回退：若有两个以上候选，按顺序分配
+            if (not dep_terminal or not arr_terminal) and len(candidates) >= 2:
+                if not dep_terminal:
+                    dep_terminal = candidates[0]
+                if not arr_terminal:
+                    arr_terminal = candidates[1]
+
+            # 若仅一个候选，分配给出发端
+            if not dep_terminal and not arr_terminal and len(candidates) == 1:
+                dep_terminal = candidates[0]
+
+            # 兜底：纯 T\d 形式（不带中文），取前两个
+            if (not dep_terminal or not arr_terminal):
+                pure = re.findall(r'(?<![A-Z])T(\d)(?![A-Za-z])', text)
+                pure = [f'T{x}' for x in pure]
+                if len(pure) >= 2:
+                    if not dep_terminal:
+                        dep_terminal = pure[0]
+                    if not arr_terminal:
+                        arr_terminal = pure[1]
+                elif len(pure) == 1 and not dep_terminal and not arr_terminal:
+                    dep_terminal = pure[0]
+
+            return dep_terminal, arr_terminal
+        except Exception:
+            return '', ''
     
     def detect_stopover(self, context):
         """检测是否经停"""
@@ -1028,33 +804,41 @@ class FlightScraper12306:
             return
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(self.output_dir, f"flight_data_{timestamp}.txt")
+        filename = os.path.join(
+            self.output_dir,
+            f"flight_data_{timestamp}.txt")
         
         # 1. 保存到本地文件
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write("12306航班信息抓取结果\n")
                 f.write("=" * 50 + "\n")
-                f.write(f"抓取时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(
+                    f"抓取时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"航班数量: {len(flights)}\n\n")
                 
                 for i, flight in enumerate(flights, 1):
                     f.write(f"航班 {i}:\n")
                     f.write(f"  航空公司: {flight.get('airline', 'N/A')}\n")
                     f.write(f"  航班号: {flight.get('flight_number', 'N/A')}\n")
-                    f.write(f"  是否共享航班: {flight.get('is_shared_flight', 'N/A')}\n")
+                    f.write(
+                        f"  是否共享航班: {flight.get('is_shared_flight', 'N/A')}\n")
                     f.write(f"  飞机型号: {flight.get('aircraft_type', 'N/A')}\n")
                     f.write(f"  出发日期: {flight.get('departure_date', 'N/A')}\n")
                     f.write(f"  出发城市: {flight.get('departure_city', 'N/A')}\n")
-                    f.write(f"  起飞机场: {flight.get('departure_airport', 'N/A')}\n")
+                    f.write(
+                        f"  起飞机场: {flight.get('departure_airport', 'N/A')}\n")
                     f.write(f"  起飞时间: {flight.get('departure_time', 'N/A')}\n")
                     f.write(f"  到达城市: {flight.get('arrival_city', 'N/A')}\n")
-                    f.write(f"  落地机场: {flight.get('arrival_airport', 'N/A')}\n")
+                    f.write(
+                        f"  落地机场: {flight.get('arrival_airport', 'N/A')}\n")
                     f.write(f"  落地时间: {flight.get('arrival_time', 'N/A')}\n")
-                    f.write(f"  飞行时长: {flight.get('flight_duration', 'N/A')}\n")
+                    f.write(
+                        f"  飞行时长: {flight.get('flight_duration', 'N/A')}\n")
                     f.write(f"  是否经停: {flight.get('has_stopover', 'N/A')}\n")
                     f.write(f"  经停城市: {flight.get('stopover_city', 'N/A')}\n")
-                    f.write(f"  经停机场: {flight.get('stopover_airport', 'N/A')}\n")
+                    f.write(
+                        f"  经停机场: {flight.get('stopover_airport', 'N/A')}\n")
                     f.write(f"  最低价格: {flight.get('price', 'N/A')}\n")
                     f.write(f"  舱位等级: {flight.get('cabin_class', 'N/A')}\n")
                     f.write(f"  折扣率: {flight.get('discount_rate', 'N/A')}\n")
@@ -1073,10 +857,21 @@ class FlightScraper12306:
             api_url = f"{api_base}/api/flights/batch-save"
             
             # 准备数据
+            task_id = self.task_id or os.getenv("TASK_ID")
+            # 确保task_id是整数类型
+            if task_id:
+                try:
+                    task_id = int(task_id)
+                except (ValueError, TypeError):
+                    print(f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                    task_id = None
             payload = {
                 "flights": flights,
-                "source": "12306"
+                "source": "12306",
+                "task_id": task_id
             }
+            tprint(
+                f"📤 保存航班数据（save_to_database），task_id={task_id} (type: {type(task_id).__name__})")
             
             print(f"📤 正在保存 {len(flights)} 条航班数据到数据库...")
             response = requests.post(
@@ -1106,7 +901,8 @@ class FlightScraper12306:
         try:
             # 首先尝试从整个页面源码中提取所有航班号
             all_flight_numbers = re.findall(r'([A-Z]{2}\d{3,4})', page_source)
-            print(f"📊 页面中找到 {len(all_flight_numbers)} 个航班号: {all_flight_numbers}")
+            print(
+                f"📊 页面中找到 {len(all_flight_numbers)} 个航班号: {all_flight_numbers}")
             
             if not all_flight_numbers:
                 print("❌ 高级方法：未找到任何航班号")
@@ -1117,13 +913,20 @@ class FlightScraper12306:
                 print(f"🔄 处理航班号: {flight_number}")
                 
                 # 在页面中查找包含这个航班号的上下文
-                flight_context = self.find_flight_context(page_source, flight_number)
+                flight_context = self.find_flight_context(
+                    page_source, flight_number)
                 
                 if flight_context:
-                    flight_info = self.parse_flight_context(flight_context, flight_number)
+                    flight_info = self.parse_flight_context(
+                        flight_context, flight_number)
                     if flight_info:
+                        # 机型补强：若缺失则从整页提取
+                        if not flight_info.get('aircraft_type'):
+                            flight_info['aircraft_type'] = self.extract_aircraft_type_from_page(
+                                page_source, flight_number)
                         flights.append(flight_info)
-                        print(f"✅ 高级方法找到航班: {flight_info['flight_number']} - {flight_info['departure_time']} -> {flight_info['arrival_time']} - {flight_info['price']}元")
+                        print(
+                            f"✅ 高级方法找到航班: {flight_info['flight_number']} - {flight_info['departure_time']} -> {flight_info['arrival_time']} - {flight_info['price']}元")
                 else:
                     print(f"⚠️ 未找到航班 {flight_number} 的上下文信息")
             
@@ -1168,8 +971,11 @@ class FlightScraper12306:
                 return None
             
             # 从上下文中提取价格
-            price_match = re.search(r'(?:[¥￥]|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)|([0-9]+(?:\.[0-9]{1,2})?)\s*元', context)
-            price = price_match.group(1) or price_match.group(2) if price_match else ''
+            price_match = re.search(
+                r'(?:[¥￥]|CNY)\s*([0-9]+(?:\.[0-9]{1,2})?)|([0-9]+(?:\.[0-9]{1,2})?)\s*元',
+                context)
+            price = price_match.group(1) or price_match.group(
+                2) if price_match else ''
             
             if not price:
                 print(f"⚠️ 航班 {flight_number} 上下文中未找到价格")
@@ -1181,8 +987,13 @@ class FlightScraper12306:
                 print(f"⚠️ 航班 {flight_number} 上下文中的机场代码不足: {airports}")
                 return None
             
-            # 从上下文中提取日期
-            date_match = re.search(r'(\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})', context)
+            # 优先使用环境变量中的出发日期，如果环境变量为空则从上下文提取
+            if self.depart_date:
+                departure_date = self.depart_date
+            else:
+                date_match = re.search(
+                    r'(\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})',
+                    context)
             departure_date = date_match.group(1) if date_match else ''
             
             flight_info = {
@@ -1191,8 +1002,12 @@ class FlightScraper12306:
                 'departure_date': departure_date,
                 'departure_time': times[0],
                 'departure_airport': airports[0],
+                # 优先使用环境变量中的出发城市，如果环境变量为空则从机场代码提取
+                'departure_city': self.from_city if self.from_city else (self.get_city_from_airport(airports[0]) if airports[0] else ''),
                 'arrival_time': times[1],
                 'arrival_airport': airports[1],
+                # 优先使用环境变量中的到达城市，如果环境变量为空则从机场代码提取
+                'arrival_city': self.to_city if self.to_city else (self.get_city_from_airport(airports[1]) if airports[1] else ''),
                 'flight_duration': '',
                 'price': price,
                 'currency': 'CNY',
@@ -1203,8 +1018,10 @@ class FlightScraper12306:
             # 计算飞行时长
             if flight_info['departure_time'] and flight_info['arrival_time']:
                 try:
-                    dep_hour, dep_min = map(int, flight_info['departure_time'].split(':'))
-                    arr_hour, arr_min = map(int, flight_info['arrival_time'].split(':'))
+                    dep_hour, dep_min = map(
+                        int, flight_info['departure_time'].split(':'))
+                    arr_hour, arr_min = map(
+                        int, flight_info['arrival_time'].split(':'))
                     
                     dep_minutes = dep_hour * 60 + dep_min
                     arr_minutes = arr_hour * 60 + arr_min
@@ -1218,7 +1035,7 @@ class FlightScraper12306:
                     minutes = duration_minutes % 60
                     
                     flight_info['flight_duration'] = f"{hours}h{minutes}m"
-                except:
+                except BaseException:
                     pass
             
             return flight_info
@@ -1229,47 +1046,404 @@ class FlightScraper12306:
     
     def run_scraping(self, task_id=None):
         """运行完整的抓取流程"""
-        print("🚀 开始12306航班信息抓取")
-        print("=" * 50)
+        tprint("🚀 开始12306航班信息抓取")
+        tprint("=" * 50)
         
         # 设置任务ID
         if task_id:
             self.set_task_id(task_id)
         
         try:
-            # 初始化驱动
-            if not self.setup_driver():
-                return False
+            # 初始化驱动（使用拆分后的连接模块）
+            print("🔌 使用模块化设备连接...")
+            self.driver = connect_device()
+            self.wait = WebDriverWait(self.driver, 10)
             
-            # 执行抓取步骤
-            steps = [
-                self.step1_launch_12306,
-                self.step2_check_homepage,
-                self.step3_click_air_rail_transfer,
-                self.step4_check_air_rail_page,
-                self.step4a_select_from_city,
-                self.step4b_select_to_city,
-                #self.step4c_select_date,
-                self.step5_click_search,
-                self.step6_check_flight_list
-            ]
-            
-            for step in steps:
-                if not step():
-                    print("❌ 抓取流程中断")
+            # 导航并查询（模块化）
+            tprint(
+                f"🔍 准备导航: 出发城市={self.from_city}, 到达城市={self.to_city}, 出发日期={self.depart_date}")
+            navigate_and_search(
+                self.driver,
+                self.from_city,
+                self.to_city,
+                self.depart_date)
+
+            # 提取页面源码（优先使用OCR模式，适用于H5/WebView页面）
+            try:
+                from page_capture_ocr import smart_scroll_and_capture_hybrid
+                from parser_ocr import parse_ocr_text
+                print("🔍 使用混合模式提取航班信息（优先OCR）...")
+                flights, ocr_text, method_used = smart_scroll_and_capture_hybrid(
+                    self.driver, self.output_dir, prefer_ocr=True)
+                print(f"✅ 使用{method_used.upper()}模式识别到 {len(flights)} 个航班")
+
+                if method_used == 'ocr' and ocr_text:
+                    # OCR模式：优先尝试大模型视觉API，如果失败则使用传统OCR解析
+                    try:
+                        parsed_flights = []
+                        
+                        # 尝试使用大模型视觉API（如果配置了API密钥）
+                        llm_api_type = os.getenv('LLM_API_TYPE', '').lower()
+                        llm_api_key = None
+                        use_llm = False
+                        
+                        if llm_api_type in ['openai', 'anthropic', 'google', 'zai', 'glm']:
+                            if llm_api_type == 'openai':
+                                llm_api_key = os.getenv('OPENAI_API_KEY')
+                            elif llm_api_type == 'anthropic':
+                                llm_api_key = os.getenv('ANTHROPIC_API_KEY')
+                            elif llm_api_type == 'google':
+                                llm_api_key = os.getenv('GOOGLE_API_KEY')
+                            elif llm_api_type in ['zai', 'glm']:
+                                llm_api_key = os.getenv('ZAI_API_KEY')
+                            
+                            if llm_api_key:
+                                use_llm = True
+                                print(f"🤖 尝试使用{llm_api_type.upper()}大模型视觉API解析...")
+                                try:
+                                    from parser_llm_vision import parse_screenshot_with_llm
+                                    parsed_flights = parse_screenshot_with_llm(
+                                        self.driver, api_type=llm_api_type, api_key=llm_api_key)
+                                    if parsed_flights:
+                                        print(f"✅ 大模型视觉API解析成功，提取到 {len(parsed_flights)} 条航班信息")
+                                except Exception as e:
+                                    print(f"⚠️ 大模型视觉API解析失败: {e}，回退到传统OCR解析")
+                                    use_llm = False
+                        
+                        # 如果大模型解析失败或未配置，使用传统OCR解析
+                        if not parsed_flights:
+                            print("🔍 使用OCR解析器提取完整航班信息...")
+                            try:
+                                # 获取页面源码作为备用（用于提取额外信息）
+                                try:
+                                    page_source_fallback = self.driver.page_source
+                                except BaseException:
+                                    page_source_fallback = None
+
+                                # 使用OCR解析器解析
+                                parsed_flights = parse_ocr_text(
+                                    ocr_text, page_source_fallback)
+                            except Exception as e:
+                                print(f"⚠️ OCR解析失败: {e}")
+                                parsed_flights = []
+
+                        if parsed_flights:
+                            print(f"✅ OCR解析器提取到 {len(parsed_flights)} 条完整航班信息")
+                            # 直接保存解析后的航班数据
+                            try:
+                                # 将解析后的航班数据转换为页面源码格式以便保存
+                                import json
+                                flights_json = json.dumps(
+                                    parsed_flights, ensure_ascii=False)
+                                # 创建一个包含完整信息的页面源码
+                                page_source = f"<root><flights_json>{flights_json}</flights_json></root>"
+
+                                # 直接调用API保存（绕过parser的解析步骤）
+                                api_base = os.getenv(
+                                    "API_BASE_URL", "http://localhost:8000")
+                                task_id = self.task_id or os.getenv("TASK_ID")
+                                # 确保task_id是整数类型
+                                if task_id:
+                                    try:
+                                        task_id = int(task_id)
+                                    except (ValueError, TypeError):
+                                        print(
+                                            f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                                        task_id = None
+                                api_url = f"{api_base}/api/flights/batch-save"
+                                payload = {
+                                    "flights": parsed_flights,
+                                    "source": "12306",
+                                    "task_id": task_id
+                                }
+                                tprint(
+                                    f"📤 保存航班数据，task_id={task_id} (type: {type(task_id).__name__})")
+
+                                print(
+                                    f"📤 正在保存 {len(parsed_flights)} 条航班数据到数据库...")
+                                print(
+                                    f"🔍 API请求详情: url={api_url}, task_id={task_id}, flights_count={len(parsed_flights)}")
+                                import requests
+                                response = requests.post(
+                                    api_url, json=payload, timeout=30)
+
+                                if response.status_code == 200:
+                                    result = response.json()
+                                    print(
+                                        f"✅ 数据库保存成功: {result.get('message', 'OK')}")
+                                    # 检查返回结果中是否有航班数量更新信息
+                                    if 'saved_count' in result:
+                                        print(
+                                            f"📊 API返回: 保存了 {result.get('saved_count')} 条航班")
+                                else:
+                                    print(
+                                        f"❌ 数据库保存失败: {response.status_code} - {response.text}")
+                                    # 回退到parser保存
+                                    task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                                    if task_id_for_parser:
+                                        try:
+                                            task_id_for_parser = int(task_id_for_parser)
+                                        except (ValueError, TypeError):
+                                            task_id_for_parser = None
+                                    parse_and_save(page_source, task_id_for_parser)
+                            except Exception as e:
+                                print(f"⚠️ 直接保存失败: {e}，使用parser保存")
+                                try:
+                                    task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                                    if task_id_for_parser:
+                                        try:
+                                            task_id_for_parser = int(task_id_for_parser)
+                                        except (ValueError, TypeError):
+                                            task_id_for_parser = None
+                                    parse_and_save(page_source, task_id_for_parser)
+                                except NameError:
+                                    # 如果 parse_and_save 未导入，尝试导入
+                                    try:
+                                        from parser import parse_and_save
+                                        task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                                        if task_id_for_parser:
+                                            try:
+                                                task_id_for_parser = int(task_id_for_parser)
+                                            except (ValueError, TypeError):
+                                                task_id_for_parser = None
+                                        parse_and_save(page_source, task_id_for_parser)
+                                    except Exception as parse_error:
+                                        print(f"❌ parser保存也失败: {parse_error}")
+                        else:
+                            print("⚠️ OCR解析器未提取到完整信息，创建基本航班记录...")
+                            # 备用方案：创建基本航班记录
+                            if flights:
+                                basic_flights = []
+                                for flight_num in sorted(flights):
+                                    basic_flights.append({
+                                        'airline': _get_airline_from_code(flight_num),
+                                        'flight_number': flight_num,
+                                        'departure_time': '',
+                                        'departure_airport': '',
+                                        'arrival_time': '',
+                                        'arrival_airport': '',
+                                        'price': 0.0,
+                                        'currency': 'CNY',
+                                        'source': '12306',
+                                        'status': 'active'
+                                    })
+
+                                # 直接保存基本记录
+                                api_base = os.getenv(
+                                    "API_BASE_URL", "http://localhost:8000")
+                                task_id = self.task_id or os.getenv("TASK_ID")
+                                # 确保task_id是整数类型
+                                if task_id:
+                                    try:
+                                        task_id = int(task_id)
+                                    except (ValueError, TypeError):
+                                        print(
+                                            f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                                        task_id = None
+                                api_url = f"{api_base}/api/flights/batch-save"
+                                payload = {
+                                    "flights": basic_flights,
+                                    "source": "12306",
+                                    "task_id": task_id
+                                }
+                                tprint(
+                                    f"📤 保存基本航班记录，task_id={task_id} (type: {type(task_id).__name__})")
+
+                                import requests
+                                response = requests.post(
+                                    api_url, json=payload, timeout=30)
+                                if response.status_code == 200:
+                                    print(
+                                        f"✅ 保存了 {len(basic_flights)} 条基本航班记录")
+                                else:
+                                    print(f"❌ 保存失败: {response.status_code}")
+                    except Exception as e:
+                        print(f"⚠️ OCR解析失败: {e}，创建基本航班记录...")
+                        import traceback
+                        traceback.print_exc()
+                        # 备用方案：创建基本航班记录
+                        if flights:
+                            basic_flights = []
+                            for flight_num in sorted(flights):
+                                basic_flights.append({
+                                    'airline': _get_airline_from_code(flight_num),
+                                    'flight_number': flight_num,
+                                    'departure_time': '',
+                                    'departure_airport': '',
+                                    'arrival_time': '',
+                                    'arrival_airport': '',
+                                    'price': 0.0,
+                                    'currency': 'CNY',
+                                    'source': '12306',
+                                    'status': 'active'
+                                })
+
+                            # 直接保存基本记录
+                            api_base = os.getenv(
+                                "API_BASE_URL", "http://localhost:8000")
+                            task_id = self.task_id or os.getenv("TASK_ID")
+                            # 确保task_id是整数类型
+                            if task_id:
+                                try:
+                                    task_id = int(task_id)
+                                except (ValueError, TypeError):
+                                    print(
+                                        f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                                    task_id = None
+                            api_url = f"{api_base}/api/flights/batch-save"
+                            payload = {
+                                "flights": basic_flights,
+                                "source": "12306",
+                                "task_id": task_id
+                            }
+                            tprint(
+                                f"📤 保存基本航班记录（异常处理），task_id={task_id} (type: {type(task_id).__name__})")
+
+                            import requests
+                            try:
+                                response = requests.post(
+                                    api_url, json=payload, timeout=30)
+                                if response.status_code == 200:
+                                    print(
+                                        f"✅ 保存了 {len(basic_flights)} 条基本航班记录")
+                                else:
+                                    print(
+                                        f"❌ 保存失败: {response.status_code} - {response.text}")
+                            except Exception as save_e:
+                                print(f"❌ 保存请求失败: {save_e}")
+                elif method_used == 'ocr':
+                    # OCR模式但没有OCR文本，使用航班号创建基本记录
+                    print("⚠️ OCR模式但无OCR文本，创建基本航班记录...")
+                    if flights:
+                        # 创建基本航班记录（只有航班号）
+                        basic_flights = []
+                        for flight_num in sorted(flights):
+                            basic_flights.append({
+                                'airline': _get_airline_from_code(flight_num),
+                                'flight_number': flight_num,
+                                'departure_time': '',
+                                'departure_airport': '',
+                                'arrival_time': '',
+                                'arrival_airport': '',
+                                'price': 0.0,
+                                'currency': 'CNY',
+                                'source': '12306',
+                                'status': 'active'
+                            })
+
+                        # 直接保存
+                        api_base = os.getenv(
+                            "API_BASE_URL", "http://localhost:8000")
+                        task_id = self.task_id or os.getenv("TASK_ID")
+                        # 确保task_id是整数类型
+                        if task_id:
+                            try:
+                                task_id = int(task_id)
+                            except (ValueError, TypeError):
+                                print(f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                                task_id = None
+                        api_url = f"{api_base}/api/flights/batch-save"
+                        payload = {
+                            "flights": basic_flights,
+                            "source": "12306",
+                            "task_id": task_id
+                        }
+                        tprint(
+                            f"📤 保存基本航班记录（OCR无文本），task_id={task_id} (type: {type(task_id).__name__})")
+
+                        import requests
+                        response = requests.post(
+                            api_url, json=payload, timeout=30)
+                        if response.status_code == 200:
+                            print(f"✅ 保存了 {len(basic_flights)} 条基本航班记录")
+                        else:
+                            print(f"❌ 保存失败: {response.status_code}")
+                else:
+                    # XML模式：使用原有流程
+                    from page_capture import smart_scroll_and_capture
+                    page_source, _ = smart_scroll_and_capture(
+                        self.driver, self.output_dir)
+                    if not page_source:
+                        tprint("❌ 页面源码提取失败")
+                        return False
+                    try:
+                        task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                        if task_id_for_parser:
+                            try:
+                                task_id_for_parser = int(task_id_for_parser)
+                            except (ValueError, TypeError):
+                                task_id_for_parser = None
+                        parse_and_save(page_source, task_id_for_parser)
+                    except NameError:
+                        # 如果 parse_and_save 未导入，尝试导入
+                        try:
+                            from parser import parse_and_save
+                            task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                            if task_id_for_parser:
+                                try:
+                                    task_id_for_parser = int(task_id_for_parser)
+                                except (ValueError, TypeError):
+                                    task_id_for_parser = None
+                            parse_and_save(page_source, task_id_for_parser)
+                        except Exception as parse_error:
+                            tprint(f"❌ parser保存失败: {parse_error}")
+            except ImportError as e:
+                # 如果OCR模块不可用，回退到原有方法
+                tprint(f"⚠️ OCR模块不可用: {e}，使用传统XML提取...")
+                from page_capture import smart_scroll_and_capture
+                page_source, _ = smart_scroll_and_capture(
+                    self.driver, self.output_dir)
+                if not page_source:
+                    tprint("❌ 页面源码提取失败")
                     return False
-            
-            # 提取页面源码
-            page_source = self.step7_extract_page_source()
-            if not page_source:
-                print("❌ 页面源码提取失败")
-                return False
-            
-            # 解析航班信息
-            flights = self.parse_flight_info(page_source)
-            
-            # 保存数据
-            self.save_flight_data(flights)
+                try:
+                    task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                    if task_id_for_parser:
+                        try:
+                            task_id_for_parser = int(task_id_for_parser)
+                        except (ValueError, TypeError):
+                            task_id_for_parser = None
+                    parse_and_save(page_source, task_id_for_parser)
+                except NameError:
+                    # 如果 parse_and_save 未导入，尝试导入
+                    try:
+                        from parser import parse_and_save
+                        task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                        if task_id_for_parser:
+                            try:
+                                task_id_for_parser = int(task_id_for_parser)
+                            except (ValueError, TypeError):
+                                task_id_for_parser = None
+                        parse_and_save(page_source, task_id_for_parser)
+                    except Exception as parse_error:
+                        tprint(f"❌ parser保存失败: {parse_error}")
+            except Exception as e:
+                tprint(f"⚠️ 提取过程出错: {e}，尝试使用XML提取...")
+                from page_capture import smart_scroll_and_capture
+                page_source, _ = smart_scroll_and_capture(
+                    self.driver, self.output_dir)
+                if page_source:
+                    try:
+                        task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                        if task_id_for_parser:
+                            try:
+                                task_id_for_parser = int(task_id_for_parser)
+                            except (ValueError, TypeError):
+                                task_id_for_parser = None
+                        parse_and_save(page_source, task_id_for_parser)
+                    except NameError:
+                        # 如果 parse_and_save 未导入，尝试导入
+                        try:
+                            from parser import parse_and_save
+                            task_id_for_parser = self.task_id or os.getenv("TASK_ID")
+                            if task_id_for_parser:
+                                try:
+                                    task_id_for_parser = int(task_id_for_parser)
+                                except (ValueError, TypeError):
+                                    task_id_for_parser = None
+                            parse_and_save(page_source, task_id_for_parser)
+                        except Exception as parse_error:
+                            tprint(f"❌ parser保存失败: {parse_error}")
             
             print("\n🎉 航班信息抓取完成！")
             return True
@@ -1283,7 +1457,8 @@ class FlightScraper12306:
             try:
                 if self.driver:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    final_shot = os.path.join(self.output_dir, f"flight_scraper_final_{timestamp}.png")
+                    final_shot = os.path.join(
+                        self.output_dir, f"flight_scraper_final_{timestamp}.png")
                     self.driver.save_screenshot(final_shot)
                     print(f"📸 最终截图已保存: {final_shot}")
             except Exception as e:
@@ -1293,8 +1468,62 @@ class FlightScraper12306:
                 self.driver.quit()
                 print("🔚 驱动已关闭")
 
+
 def main():
     """主函数"""
+    parser = argparse.ArgumentParser(description="12306 航班抓取/解析工具")
+    parser.add_argument(
+        "--parse-only",
+        action="store_true",
+        help="仅解析给定页面源码文件，不运行Appium")
+    parser.add_argument("--input", type=str, help="页面源码文件路径（.xml/.txt）")
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="输出JSON文件路径（可选，不填则写入results目录）")
+    args = parser.parse_args()
+
+    # 仅解析模式：直接读取文件并调用统一解析方法
+    if args.parse_only:
+        if not args.input or not os.path.exists(args.input):
+            print("❌ 需要提供有效的 --input 文件路径用于解析")
+            sys.exit(2)
+        try:
+            with open(args.input, "r", encoding="utf-8") as f:
+                page_source = f.read()
+            flights = parse_page_source(page_source)
+            print("\n🧾 解析结果(JSON):")
+            print(json.dumps(
+                {"count": len(flights), "flights": flights}, ensure_ascii=False, indent=2))
+            # 写入文件
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_dir = os.getenv(
+                "SCRAPER_OUTPUT_DIR", os.path.join(
+                    os.getcwd(), "results"))
+            try:
+                os.makedirs(default_dir, exist_ok=True)
+            except Exception:
+                pass
+            out_path = args.output or os.path.join(
+                default_dir, f"parsed_flights_{timestamp}.json")
+            with open(out_path, "w", encoding="utf-8") as wf:
+                json.dump({"count": len(flights), "flights": flights},
+                          wf, ensure_ascii=False, indent=2)
+            latest_path = os.path.join(
+                default_dir, "parsed_flights_latest.json")
+            try:
+                with open(latest_path, "w", encoding="utf-8") as lf:
+                    json.dump({"count": len(flights), "flights": flights},
+                              lf, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            print(f"\n💾 已写入: {out_path}\n💾 最新文件: {latest_path}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"❌ 解析失败: {e}")
+            sys.exit(3)
+
+    # 正常抓取模式
     scraper = FlightScraper12306()
     
     # 从环境变量获取任务ID
@@ -1314,7 +1543,6 @@ def main():
         print("\n❌ 抓取任务失败！")
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
-
-

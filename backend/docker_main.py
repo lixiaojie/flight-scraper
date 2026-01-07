@@ -2,7 +2,12 @@
 Docker容器专用的FastAPI主应用
 """
 
+from models.task_record import TaskRecord
+from schemas.flight_schema import FlightResultResponse, FlightStatisticsResponse
+from models.flight_result import FlightResult
+from core.database import get_db
 from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List, Optional, Any, Dict
@@ -17,15 +22,26 @@ from datetime import datetime
 # 添加当前目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.database import get_db
-from models.flight_result import FlightResult
-from schemas.flight_schema import FlightResultResponse, FlightStatisticsResponse
-from models.task_record import TaskRecord
+
+# 导入API路由
+try:
+    from api.endpoints.task_endpoints import router as task_router
+    from api.endpoints.admin_endpoints import router as admin_router
+    from api.endpoints.system_endpoints import router as system_router
+    from api.endpoints.flight_endpoints import router as flight_router
+    HAS_ROUTERS = True
+    print("✅ 路由导入成功")
+except ImportError as e:
+    print(f"❌ 路由导入失败: {e}")
+    HAS_ROUTERS = False
 
 # 定义请求模型
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
+
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -33,6 +49,13 @@ app = FastAPI(
     description="12306航班信息抓取和查询API",
     version="1.0.0"
 )
+# 挂载结果目录用于静态访问（用于调试/比对）
+try:
+    results_dir = os.environ.get("SCRAPER_OUTPUT_DIR", "/app/results")
+    os.makedirs(results_dir, exist_ok=True)
+    app.mount("/results", StaticFiles(directory=results_dir), name="results")
+except Exception:
+    pass
 
 # 添加CORS中间件
 app.add_middleware(
@@ -42,6 +65,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册API路由
+if HAS_ROUTERS:
+    print("✅ 注册路由...")
+    app.include_router(task_router, prefix="/api")
+    app.include_router(admin_router, prefix="/api")
+    app.include_router(system_router, prefix="/api")
+    app.include_router(flight_router, prefix="/api")
+    print("✅ 路由注册完成")
+else:
+    print("❌ 路由未注册，HAS_ROUTERS=False")
+
 
 def _ensure_task_config_column(db: Session) -> None:
     """确保 task_records 表存在 config 列（SQLite 运行时自修复）。"""
@@ -56,64 +91,51 @@ def _ensure_task_config_column(db: Session) -> None:
         # 忽略，后续会回退到写入 notes
         pass
 
+
 @app.get("/")
 async def root():
     """根路径"""
     return {"message": "航班信息API服务正在运行", "version": "1.0.0"}
+
 
 @app.get("/health")
 async def health_check():
     """健康检查"""
     return {"status": "healthy", "service": "flight-scraper-api"}
 
-@app.get("/api/flights", response_model=List[FlightResultResponse])
-async def get_flights(
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    airline: Optional[str] = None,
-    limit: int = 50,
-    db: Session = Depends(get_db)
-):
-    """获取航班列表"""
-    try:
-        query = db.query(FlightResult)
-        
-        if min_price is not None:
-            query = query.filter(FlightResult.price >= min_price)
-        if max_price is not None:
-            query = query.filter(FlightResult.price <= max_price)
-        if airline:
-            query = query.filter(FlightResult.airline.contains(airline))
-        
-        flights = query.order_by(FlightResult.scrape_time.desc()).limit(limit).all()
-        return [flight.to_dict() for flight in flights]
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+# 已迁移到 api.endpoints.flight_endpoints，删除此路由以避免冲突
+
 
 @app.get("/api/flights/statistics", response_model=FlightStatisticsResponse)
 async def get_flight_statistics(db: Session = Depends(get_db)):
     """获取航班统计信息"""
     try:
         total_flights = db.query(FlightResult).count()
-        min_price = db.query(FlightResult).with_entities(FlightResult.price).order_by(FlightResult.price).first()
-        max_price = db.query(FlightResult).with_entities(FlightResult.price).order_by(FlightResult.price.desc()).first()
-        
+        min_price = db.query(FlightResult).with_entities(
+            FlightResult.price).order_by(
+            FlightResult.price).first()
+        max_price = db.query(FlightResult).with_entities(
+            FlightResult.price).order_by(
+            FlightResult.price.desc()).first()
+
         if total_flights > 0:
-            avg_price = db.query(FlightResult).with_entities(FlightResult.price).all()
+            avg_price = db.query(FlightResult).with_entities(
+                FlightResult.price).all()
             avg_price = sum([f.price for f in avg_price]) / len(avg_price)
         else:
             avg_price = 0.0
-        
+
         return {
             "total_flights": total_flights,
             "min_price": min_price[0] if min_price else 0.0,
             "max_price": max_price[0] if max_price else 0.0,
             "avg_price": avg_price
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/flights/batch-save")
 async def batch_save_flights(
@@ -124,7 +146,36 @@ async def batch_save_flights(
     try:
         flights = request.get('flights', [])
         source = request.get('source', '12306')
+        task_id = request.get('task_id')
+        
+        # 确保 task_id 是整数类型
+        if task_id is not None:
+            try:
+                task_id = int(task_id)
+            except (ValueError, TypeError):
+                print(f"⚠️ task_id 格式错误: {task_id}，将设置为 None")
+                task_id = None
+        
+        # 如果提供了task_id，获取任务的结束时间作为scrape_time
+        scrape_time = None
+        if task_id:
+            try:
+                task = db.query(TaskRecord).filter(TaskRecord.id == task_id).first()
+                if task:
+                    if task.end_time:
+                        scrape_time = task.end_time
+                    else:
+                        scrape_time = datetime.now()
+                        task.end_time = scrape_time
+                        db.commit()
+            except Exception as e:
+                print(f"⚠️ 获取任务结束时间失败: {e}")
+        
+        if scrape_time is None:
+            scrape_time = datetime.now()
+        
         saved_count = 0
+        saved_flights = []
 
         for flight_data in flights:
             flight_result = FlightResult(
@@ -139,6 +190,8 @@ async def batch_save_flights(
                 arrival_time=flight_data.get('arrival_time', ''),
                 arrival_airport=flight_data.get('arrival_airport', ''),
                 arrival_city=flight_data.get('arrival_city', ''),
+                departure_terminal=flight_data.get('departure_terminal', ''),
+                arrival_terminal=flight_data.get('arrival_terminal', ''),
                 flight_duration=flight_data.get('flight_duration', ''),
                 has_stopover=flight_data.get('has_stopover', ''),
                 stopover_city=flight_data.get('stopover_city', ''),
@@ -150,18 +203,37 @@ async def batch_save_flights(
                 original_price=flight_data.get('original_price'),
                 source=source,
                 status=flight_data.get('status', 'active'),
+                task_id=task_id,
+                scrape_time=scrape_time,
                 raw_data=str(flight_data),
                 notes=flight_data.get('notes', '')
             )
             db.add(flight_result)
+            saved_flights.append(flight_result)
             saved_count += 1
         db.commit()
         
+        # 保存航班后，更新任务的航班数量
+        if task_id and saved_flights:
+            try:
+                task = db.query(TaskRecord).filter(TaskRecord.id == task_id).first()
+                if task:
+                    flight_count = db.query(FlightResult).filter(
+                        FlightResult.task_id == task_id,
+                        FlightResult.status == 'active'
+                    ).count()
+                    task.flights_count = flight_count
+                    db.commit()
+                    print(f"📊 任务 {task_id} 航班数量已更新为: {flight_count}")
+            except Exception as e:
+                print(f"⚠️ 更新任务航班数量失败: {e}")
+
         return {"message": f"Successfully saved {saved_count} flights"}
-        
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/tasks")
 async def get_task_records(
@@ -183,6 +255,7 @@ async def get_task_records(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/tasks/statistics")
 async def get_task_statistics(db: Session = Depends(get_db)):
     """获取任务统计信息"""
@@ -190,14 +263,18 @@ async def get_task_statistics(db: Session = Depends(get_db)):
         total = db.query(TaskRecord).count()
         successful = db.query(TaskRecord).filter(TaskRecord.success == True).count()  # noqa: E712
         failed = db.query(TaskRecord).filter(TaskRecord.success == False).count()  # noqa: E712
-        running = db.query(TaskRecord).filter(TaskRecord.status == "running").count()
+        running = db.query(TaskRecord).filter(
+            TaskRecord.status == "running").count()
 
         # 平均时长（秒）
-        durations = [r.duration for r in db.query(TaskRecord).filter(TaskRecord.duration.isnot(None)).all()]
+        durations = [
+            r.duration for r in db.query(TaskRecord).filter(
+                TaskRecord.duration.isnot(None)).all()]
         avg_duration = int(sum(durations) / len(durations)) if durations else 0
 
         # 总航班数（简单汇总）
-        total_flights = sum([r.flights_count or 0 for r in db.query(TaskRecord).all()])
+        total_flights = sum(
+            [r.flights_count or 0 for r in db.query(TaskRecord).all()])
 
         success_rate = round((successful / total) * 100, 2) if total else 0.0
 
@@ -213,12 +290,14 @@ async def get_task_statistics(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 class CreateTaskRequest(BaseModel):
     task_name: Optional[str] = None
     task_type: Optional[str] = "flight_scraper"
     source: Optional[str] = "12306"
     # 允许前端传入配置，如 { fromCity, toCity, departDate }
     config: Optional[dict] = None
+
 
 def _inject_config_env(env: Dict[str, str], cfg: Optional[Dict[str, Any]]):
     """将前端配置注入为脚本可读取的环境变量"""
@@ -231,6 +310,8 @@ def _inject_config_env(env: Dict[str, str], cfg: Optional[Dict[str, Any]]):
             env['SCRAPER_TO_CITY'] = str(cfg['toCity'])
         if cfg.get('departDate'):
             env['SCRAPER_DEPART_DATE'] = str(cfg['departDate'])
+        if cfg.get('airline'):
+            env['SCRAPER_AIRLINE'] = str(cfg['airline'])
     except Exception:
         pass
 
@@ -251,20 +332,30 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
         script_path = "/app/scripts/flight_scraper_12306.py"
         if not os.path.exists(script_path):
             # 兼容在本地运行 web 主进程
-            script_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "scripts", "flight_scraper_12306.py"))
+            script_path = os.path.abspath(
+                os.path.join(
+                    os.path.dirname(
+                        os.path.dirname(__file__)),
+                    "..",
+                    "scripts",
+                    "flight_scraper_12306.py"))
 
         env = os.environ.copy()
-        # 传递Appium地址和截图目录给脚本
-        env.setdefault("APPIUM_SERVER_URL", os.environ.get("APPIUM_SERVER_URL", "http://localhost:4723"))
-        env.setdefault("SCRAPER_OUTPUT_DIR", os.environ.get("SCRAPER_OUTPUT_DIR", "/app/results"))
-        # 传递后端API地址给脚本
+        # 仅传递统一配置路径，其余连接参数由脚本侧读取 JSON 配置
+        env.setdefault(
+            "SCRAPER_CONFIG_PATH",
+            os.environ.get(
+                "SCRAPER_CONFIG_PATH",
+                "/app/scripts/config/scraper.config.json"))
+        # 可选：输出目录、后端地址、任务ID
+        env.setdefault(
+            "SCRAPER_OUTPUT_DIR",
+            os.environ.get(
+                "SCRAPER_OUTPUT_DIR",
+                "/app/results"))
         env.setdefault("API_BASE_URL", "http://localhost:8000")
-        # 传递任务ID给脚本
         env.setdefault("TASK_ID", str(task_id))
-        # 允许指定宿主机已运行的 Android Studio 模拟器 udid（例如 emulator-5554）
-        if os.environ.get("SCRAPER_DEVICE_UDID"):
-            env["SCRAPER_DEVICE_UDID"] = os.environ["SCRAPER_DEVICE_UDID"]
-        # 从参数或DB注入脚本环境变量
+        # 从参数或DB注入业务查询配置（城市/日期等）
         try:
             import json
             cfg_dict: Optional[Dict[str, Any]] = None
@@ -275,7 +366,10 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
                     cfg_dict = None
             if cfg_dict is None and task.config:
                 try:
-                    cfg_dict = json.loads(task.config) if isinstance(task.config, str) else task.config
+                    cfg_dict = json.loads(
+                        task.config) if isinstance(
+                        task.config,
+                        str) else task.config
                 except Exception:
                     cfg_dict = None
             _inject_config_env(env, cfg_dict)
@@ -291,15 +385,20 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
         try:
             with open(log_path, 'wb') as lf:
                 preface = (
-                    f"SCRAPER_FROM_CITY={env.get('SCRAPER_FROM_CITY','')}\n"
-                    f"SCRAPER_TO_CITY={env.get('SCRAPER_TO_CITY','')}\n"
-                    f"SCRAPER_DEPART_DATE={env.get('SCRAPER_DEPART_DATE','')}\n"
+                    f"SCRAPER_FROM_CITY={env.get('SCRAPER_FROM_CITY', '')}\n"
+                    f"SCRAPER_TO_CITY={env.get('SCRAPER_TO_CITY', '')}\n"
+                    f"SCRAPER_DEPART_DATE={env.get('SCRAPER_DEPART_DATE', '')}\n"
+                    f"SCRAPER_CONFIG_PATH={env.get('SCRAPER_CONFIG_PATH', '')}\n"
                 ).encode('utf-8')
                 lf.write(preface)
         except Exception:
             pass
 
-        proc = subprocess.Popen(["python3", script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        proc = subprocess.Popen(["python3",
+                                 script_path],
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                env=env)
         stdout, stderr = proc.communicate()
 
         try:
@@ -311,40 +410,48 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
         except Exception:
             pass
 
-        task.end_time = datetime.now()
+        import pytz
+        shanghai_tz = pytz.timezone('Asia/Shanghai')
+        task.end_time = datetime.now(shanghai_tz).replace(tzinfo=None)
         task.duration = int(time.time() - start_ts)
         task.status = "completed"
         task.success = proc.returncode == 0
-        err_text = (stderr.decode("utf-8", errors="ignore") if stderr else "").strip()
+        err_text = (
+            stderr.decode(
+                "utf-8",
+                errors="ignore") if stderr else "").strip()
         if not task.success:
             # 将最后一段错误写入 error_message，避免过长
             task.error_message = (err_text[-900:] if err_text else "执行失败")
         else:
             task.error_message = None
 
-        # 统计航班数量
+        # 统计航班数量 - 使用task_id进行精确统计
         if task.success:
             try:
-                from models.flight_result import FlightResult
-                # 查询最近保存的航班数量（基于抓取时间）
+                # 使用task_id精确统计航班数量
                 flight_count = db_session.query(FlightResult).filter(
-                    FlightResult.scrape_time >= task.start_time,
-                    FlightResult.source == task.source
+                    FlightResult.task_id == task_id,
+                    FlightResult.status == 'active'
                 ).count()
                 task.flights_count = flight_count
-                print(f"📊 任务 {task_id} 统计到 {flight_count} 条航班数据")
+                print(f"📊 任务 {task_id} 统计到 {flight_count} 条航班数据（基于task_id）")
             except Exception as e:
                 print(f"⚠️ 统计航班数量失败: {e}")
+                import traceback
+                traceback.print_exc()
                 task.flights_count = 0
         else:
             task.flights_count = 0
-        
+
         db_session.commit()
     except Exception as e:
         try:
             task = db_session.query(TaskRecord).get(task_id)
             if task:
-                task.end_time = datetime.now()
+                import pytz
+                shanghai_tz = pytz.timezone('Asia/Shanghai')
+                task.end_time = datetime.now(shanghai_tz).replace(tzinfo=None)
                 task.duration = int(time.time() - start_ts)
                 task.status = "failed"
                 task.success = False
@@ -354,6 +461,7 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
             pass
     finally:
         db_session.close()
+
 
 @app.post("/api/tasks")
 async def create_task(req: Request, db: Session = Depends(get_db)):
@@ -380,10 +488,37 @@ async def create_task(req: Request, db: Session = Depends(get_db)):
         except Exception:
             cfg_json = None
 
+        # 构建新的任务命名规范：出发城市-到达城市-出发日期-查询平台-指定航空公司
+        def generate_task_name(config_data, source, airline):
+            """生成标准化的任务名称"""
+            print(f"🔍 调试: generate_task_name 被调用")
+            print(f"🔍 调试: config_data = {config_data}")
+            print(f"🔍 调试: source = {source}")
+            print(f"🔍 调试: airline = {airline}")
+
+            if not config_data:
+                return f"抓取任务-{source}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+            # 如果config_data是字符串，先解析为字典
+            if isinstance(config_data, str):
+                try:
+                    config_data = json.loads(config_data)
+                except BaseException:
+                    return f"抓取任务-{source}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+            from_city = config_data.get('fromCity', '未知')
+            to_city = config_data.get('toCity', '未知')
+            depart_date = config_data.get('departDate', '未知')
+            airline_name = airline or '全部'
+
+            result = f"{from_city}-{to_city}-{depart_date}-{source}-{airline_name}"
+            print(f"🔍 调试: 生成的任务名称 = {result}")
+            return result
+
         task = TaskRecord(
             task_name=(
-                (request.get('task_name') or None)
-                or f"抓取任务-{source}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                (request.get('task_name') if request.get('task_name') and request.get('task_name').strip() else None)
+                or generate_task_name(cfg_json, source, request.get('airline'))
             ),
             task_type=task_type,
             status="running",
@@ -408,7 +543,9 @@ async def create_task(req: Request, db: Session = Depends(get_db)):
             db.refresh(task)
 
         # 启动后台线程运行脚本，直接传入本次配置，避免依赖 DB 读取
-        t = threading.Thread(target=_run_scraper_and_update, args=(task.id, cfg_json), daemon=True)
+        t = threading.Thread(
+            target=_run_scraper_and_update, args=(
+                task.id, cfg_json), daemon=True)
         t.start()
 
         data = task.to_dict()
@@ -420,8 +557,12 @@ async def create_task(req: Request, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.patch("/api/tasks/{task_id}/status")
-async def update_task_status(task_id: int, request: Request, db: Session = Depends(get_db)):
+async def update_task_status(
+        task_id: int,
+        request: Request,
+        db: Session = Depends(get_db)):
     """更新任务状态"""
     try:
         # 读取请求数据
@@ -429,31 +570,32 @@ async def update_task_status(task_id: int, request: Request, db: Session = Depen
             data = await request.json()
         except Exception:
             data = {}
-        
+
         current_step = data.get('current_step')
         status = data.get('status')
-        
+
         # 查找任务
         task = db.query(TaskRecord).filter(TaskRecord.id == task_id).first()
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
-        
+
         # 更新状态
         if current_step:
             task.current_step = current_step
         if status:
             task.status = status
-        
+
         db.commit()
         db.refresh(task)
-        
+
         return {"message": "状态更新成功", "task": task.to_dict()}
-        
+
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/admin/login")
 async def admin_login(request: LoginRequest, db: Session = Depends(get_db)):
@@ -473,21 +615,25 @@ async def admin_login(request: LoginRequest, db: Session = Depends(get_db)):
             }
         else:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-            
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/v1/auth/login")
 async def auth_login(request: dict, db: Session = Depends(get_db)):
     """兼容前端的登录接口 - 宽松版本"""
     try:
         # 尝试从不同的字段名获取用户名和密码
-        username = request.get('username') or request.get('user') or request.get('email')
-        password = request.get('password') or request.get('pass') or request.get('pwd')
-        
-        if (username == 'admin' or username == 'admin@flight-scraper.com') and password == 'admin123':
+        username = request.get('username') or request.get(
+            'user') or request.get('email')
+        password = request.get('password') or request.get(
+            'pass') or request.get('pwd')
+
+        if (username == 'admin' or username ==
+                'admin@flight-scraper.com') and password == 'admin123':
             return {
                 "access_token": "fake-jwt-token",
                 "token_type": "bearer",
@@ -501,32 +647,41 @@ async def auth_login(request: dict, db: Session = Depends(get_db)):
             }
         else:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-            
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # 添加一个调试接口来查看前端发送的数据
+
+
 @app.post("/api/v1/auth/login-debug")
 async def auth_login_debug(request: dict, db: Session = Depends(get_db)):
     """调试接口 - 查看前端发送的数据"""
     return {
         "received_data": request,
         "data_type": type(request).__name__,
-        "keys": list(request.keys()) if isinstance(request, dict) else "Not a dict"
-    }
+        "keys": list(
+            request.keys()) if isinstance(
+            request,
+            dict) else "Not a dict"}
 
 # 添加一个更宽松的登录接口
+
+
 @app.post("/api/v1/auth/login-flexible")
 async def auth_login_flexible(request: dict, db: Session = Depends(get_db)):
     """灵活的登录接口 - 接受任何格式的请求"""
     try:
         # 尝试从不同的字段名获取用户名和密码
-        username = request.get('username') or request.get('user') or request.get('email')
-        password = request.get('password') or request.get('pass') or request.get('pwd')
-        
-        if (username == 'admin' or username == 'admin@flight-scraper.com') and password == 'admin123':
+        username = request.get('username') or request.get(
+            'user') or request.get('email')
+        password = request.get('password') or request.get(
+            'pass') or request.get('pwd')
+
+        if (username == 'admin' or username ==
+                'admin@flight-scraper.com') and password == 'admin123':
             return {
                 "access_token": "fake-jwt-token",
                 "token_type": "bearer",
@@ -545,12 +700,13 @@ async def auth_login_flexible(request: dict, db: Session = Depends(get_db)):
                 "received_password": password,
                 "received_data": request
             }
-            
+
     except Exception as e:
         return {
             "error": str(e),
             "received_data": request
         }
+
 
 @app.get("/api/system/status")
 async def get_system_status():

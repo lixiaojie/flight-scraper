@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+
 class TaskRecordResponse(BaseModel):
     """任务记录响应模式"""
     id: int
@@ -20,11 +21,13 @@ class TaskRecordResponse(BaseModel):
     error_message: Optional[str] = None
     source: str
     config: Optional[str] = None
+    airline: Optional[str] = None
     notes: Optional[str] = None
     created_at: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
+
 
 class TaskStatisticsResponse(BaseModel):
     """任务统计响应模式"""
@@ -36,13 +39,16 @@ class TaskStatisticsResponse(BaseModel):
     avg_duration: float
     total_flights: int
 
+
 class CreateTaskRequest(BaseModel):
     """创建任务请求模式"""
-    task_name: str
+    task_name: Optional[str] = None
     task_type: str = "flight_scraper"
     source: str = "12306"
     config: Optional[Dict[str, Any]] = None
+    airline: Optional[str] = "深圳航空"
     notes: Optional[str] = None
+
 
 class UpdateTaskResultRequest(BaseModel):
     """更新任务结果请求模式"""

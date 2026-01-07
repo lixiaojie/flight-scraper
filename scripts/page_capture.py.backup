@@ -1,0 +1,3234 @@
+import time
+import os
+import re
+from datetime import datetime, date, timedelta
+from appium.webdriver.common.appiumby import AppiumBy
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.actions import interaction
+from selenium.webdriver.common.actions.action_builder import ActionBuilder
+from selenium.webdriver.common.actions.pointer_input import PointerInput
+from lxml import etree
+from io import StringIO
+
+# 添加带时间戳的打印函数（如果flight_scraper_12306中已定义，则导入；否则定义）
+try:
+    from flight_scraper_12306 import tprint
+except ImportError:
+
+    def tprint(*args, **kwargs):
+        """带时间戳的打印函数"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        print(f"[{timestamp}]", *args, **kwargs)
+
+
+def find_scrollable_list(driver):
+    """
+    查找页面中间的可滚动列表元素
+    
+    Returns:
+        dict or None: 包含元素信息的字典 {'element': WebElement, 'location': dict, 'size': dict}
+    """
+    try:
+        screen_size = driver.get_window_size()
+        screen_center_y = screen_size['height'] / 2
+        
+        # 尝试查找所有可滚动元素，然后筛选出在中间区域的
+        try:
+            scrollable_elements = driver.find_elements(
+                AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().scrollable(true)')
+            
+            print(f"🔍 找到 {len(scrollable_elements)} 个可滚动元素")
+            
+            # 找到位置在中间区域的元素（排除顶部25%和底部25%）
+            for element in scrollable_elements:
+                try:
+                    location = element.location
+                    size = element.size
+                    
+                    # 计算元素中心点Y坐标
+                    element_center_y = location['y'] + size['height'] / 2
+                    element_top = location['y']
+                    element_bottom = location['y'] + size['height']
+                    
+                    # 检查元素是否主要在中间区域（顶部在25%-60%之间，底部在40%-75%之间）
+                    # 并且高度足够大（至少占据屏幕的20%）
+                    if (screen_size['height'] *
+                        0.25 <= element_top <= screen_size['height'] *
+                        0.6 and screen_size['height'] *
+                        0.4 <= element_bottom <= screen_size['height'] *
+                        0.75 and size['height'] >= screen_size['height'] *
+                            0.2):
+                        print(
+                            f"✅ 找到中间区域的可滚动元素: 位置 {location}, 大小 {size}, 中心Y: {element_center_y}")
+                        return {
+                            'element': element,
+                            'location': location,
+                            'size': size,
+                            'center_y': element_center_y
+                        }
+                except Exception as e:
+
+                    continue
+            
+            # 如果没有找到完全符合条件的，选择最接近中间的可滚动元素
+            best_element = None
+            best_distance = float('inf')
+            
+            for element in scrollable_elements:
+                try:
+                    location = element.location
+                    size = element.size
+                    element_center_y = location['y'] + size['height'] / 2
+                    
+                    # 计算到屏幕中心的距离
+                    distance = abs(element_center_y - screen_center_y)
+                    
+                    # 如果元素在中间区域且距离更近，选择它
+                    if (screen_size['height'] *
+                        0.2 <= element_center_y <= screen_size['height'] *
+                            0.8 and distance < best_distance):
+                        best_distance = distance
+                        best_element = {
+                            'element': element,
+                            'location': location,
+                            'size': size,
+                            'center_y': element_center_y
+                        }
+                except BaseException:
+
+                    continue
+            
+            if best_element:
+                print(
+                    f"✅ 选择最接近中间的可滚动元素: 位置 {best_element['location']}, 大小 {best_element['size']}")
+                return best_element
+                
+        except Exception as e:
+            print(f"⚠️ 查找可滚动元素时出错: {e}")
+        
+        print("⚠️ 未找到可滚动列表元素，将使用页面中间区域进行滚动")
+        return None
+    except Exception as e:
+        print(f"⚠️ 查找可滚动列表时出错: {e}")
+        return None
+
+
+def swipe_down_in_middle(driver, scrollable_info=None, use_w3c_actions=True):
+    """
+    在页面中间区域模拟向下滑动操作（向下滚动，显示下面的内容）。
+    针对可滚动区域进行滑动，避免触碰头部和底部固定区域。
+    优先使用 W3C Actions API，如果失败则回退到传统 swipe 方法。
+
+    注意：要显示下面的内容，需要从下方滑向上方（start_y > end_y）
+    
+    Args:
+        driver: WebDriver实例
+        scrollable_info: 可滚动元素的信息字典（如果为None，则在页面中间区域滑动）
+        use_w3c_actions: 是否使用 W3C Actions API（默认True）
+    """
+    screen_size = driver.get_window_size()
+    start_x = screen_size['width'] // 2
+    
+    # 计算滑动坐标
+    # 要显示下面的内容，需要从下方滑向上方（start_y > end_y）
+    if scrollable_info and 'location' in scrollable_info and 'size' in scrollable_info:
+        try:
+            # 获取可滚动元素的位置和大小
+            location = scrollable_info['location']
+            size = scrollable_info['size']
+            
+            # 在可滚动元素的中间区域进行滑动（从下方滑向上方，显示下面的内容）
+            # 使用更小的滑动范围，确保只触发列表滚动而不拖动整个页面
+            start_y = location['y'] + size['height'] * 0.6  # 元素下方60%处（起点）
+            end_y = location['y'] + size['height'] * 0.4    # 元素上方40%处（终点）
+
+            # 确保坐标在屏幕范围内，并且滑动距离不要太大
+            start_y = max(50, min(start_y, screen_size['height'] - 50))
+            end_y = max(50, min(end_y, screen_size['height'] - 50))
+            
+            # 限制滑动距离，避免拖动整个页面（最大滑动距离为屏幕高度的20%）
+            swipe_distance = abs(start_y - end_y)
+            max_swipe_distance = screen_size['height'] * 0.2
+            if swipe_distance > max_swipe_distance:
+                end_y = start_y - max_swipe_distance
+
+            print(
+                f"📍 在可滚动元素内向下滑动（显示下面的内容）: 从 Y={
+                    start_y:.0f} 到 Y={
+                    end_y:.0f} (元素位置: {location}, 大小: {size})")
+        except Exception as e:
+
+            print(f"⚠️ 在可滚动元素内滑动失败: {e}，回退到中间区域滑动")
+            # 使用页面高度的60%到40%进行滑动（从下方滑向上方，显示下面的内容）
+            start_y = screen_size['height'] * 0.6  # 从屏幕下方60%开始
+            end_y = screen_size['height'] * 0.4   # 滑动到屏幕上方40%
+    else:
+        # 备用方案：在页面中间区域向下滑动（从下方滑向上方，显示下面的内容）
+        # 限制在中间区域，避免触碰顶部和底部固定区域
+        start_y = screen_size['height'] * 0.6  # 从屏幕下方60%开始（起点）
+        end_y = screen_size['height'] * 0.4     # 滑动到屏幕上方40%（终点）
+        # 确保滑动距离足够小，只触发列表滚动而不拖动整个页面
+        swipe_distance = abs(start_y - end_y)
+        if swipe_distance > screen_size['height'] * 0.3:
+            # 如果距离太大，限制在屏幕高度的20%以内
+            end_y = start_y - screen_size['height'] * 0.2
+        print(
+            f"📍 在页面中间区域向下滑动（显示下面的内容）: 从 Y={
+                start_y:.0f} (页面高度60%) 到 Y={
+                end_y:.0f} (页面高度40%)")
+    
+    # 优先使用 W3C Actions API
+    if use_w3c_actions:
+        try:
+            actions = ActionChains(driver)
+            actions.w3c_actions = ActionBuilder(
+                driver, mouse=PointerInput(
+                    interaction.POINTER_TOUCH, "touch"))
+            actions.w3c_actions.pointer_action.move_to_location(
+                int(start_x), int(start_y))
+            actions.w3c_actions.pointer_action.pointer_down()
+            actions.w3c_actions.pointer_action.move_to_location(
+                int(start_x), int(end_y))
+            actions.w3c_actions.pointer_action.pause(0.25)  # 添加暂停，模拟真实触摸
+            actions.w3c_actions.pointer_action.release()
+            actions.perform()
+            return
+        except Exception as e:
+
+            print(f"⚠️ W3C Actions API 滑动失败: {e}，回退到传统 swipe 方法")
+    
+    # 回退到传统 swipe 方法
+    # 使用更短的持续时间（500ms而不是800ms），使滑动更精确
+    try:
+        driver.swipe(int(start_x), int(start_y), int(start_x), int(end_y), 500)
+    except Exception as e:
+
+        print(f"⚠️ 传统 swipe 方法也失败: {e}")
+
+
+def extract_flight_elements_from_xml(page_source, driver=None):
+    """
+    从页面源码中提取航班相关元素和文本
+    提取所有可见的元素（displayed="true"），不限制bounds以读取全部可见区域内容
+    如果是WebView页面，也会尝试通过JavaScript获取内容
+    
+    Args:
+        page_source: 页面源码XML字符串
+        driver: WebDriver实例（如果为None，读取所有displayed="true"的元素，不限制bounds）
+    
+    Returns:
+        tuple: (unique_flights_set, all_elements_text_set, element_count)
+    """
+    unique_flights = set()
+    all_elements_text = set()
+    
+    # 如果是WebView页面，尝试通过JavaScript获取内容
+    webview_text = None
+    if driver:
+        try:
+            contexts = driver.contexts
+            for context in contexts:
+                if 'WEBVIEW' in context.upper():
+                    try:
+                        driver.switch_to.context(context)
+                        # 执行JavaScript获取所有文本
+                        script = """
+                        var texts = [];
+                        var walker = document.createTreeWalker(
+                            document.body,
+                            NodeFilter.SHOW_TEXT,
+                            null,
+                            false
+                        );
+                        var node;
+                        while (node = walker.nextNode()) {
+                            var text = node.textContent.trim();
+                            if (text && text.length > 0) {
+                                texts.push(text);
+                            }
+                        }
+                        return texts.join('\\n');
+                        """
+                        webview_text = driver.execute_script(script)
+                        driver.switch_to.context('NATIVE_APP')
+                        if webview_text:
+                            print(f"✅ 从WebView获取到 {len(webview_text)} 字符的内容")
+                            # 从WebView文本中提取航班号
+                            webview_flights = re.findall(
+                                r'[A-Z]{2,4}\d{3,5}', webview_text)
+                            for flight in webview_flights:
+                                if len(flight) >= 5 and re.match(
+                                        r'^[A-Z]{2,4}\d{3,5}$', flight):
+                                    unique_flights.add(flight)
+                            # 添加WebView文本到元素集合
+                            for line in webview_text.split('\n'):
+                                if line.strip():
+                                    all_elements_text.add(line.strip())
+                        break
+                    except Exception as e:
+
+                        try:
+                            driver.switch_to.context('NATIVE_APP')
+                        except BaseException:
+
+                            pass
+                        print(f"⚠️ WebView JavaScript提取失败: {e}")
+        except Exception as e:
+            print(f"⚠️ 检查WebView上下文失败: {e}")
+    
+    try:
+        # 使用 lxml 解析 XML 源代码，启用错误恢复
+        root = etree.fromstring(
+            page_source.encode('utf-8'),
+            etree.XMLParser(
+                recover=True,
+                encoding='utf-8'))
+        
+        # 提取所有文本内容，只提取可见的（displayed="true"）
+        # Android: android.widget.TextView
+        xpath_query = './/android.widget.TextView[@displayed="true"]'
+        current_elements = root.xpath(xpath_query)
+        
+        visible_count = 0
+        for element in current_elements:
+            # 检查元素是否可见
+            displayed = element.get('displayed', 'false').lower()
+            if displayed != 'true':
+                continue
+            
+            # 如果driver为None，不限制bounds，读取所有displayed="true"的元素
+            # 这样可以读取滚动后加载的所有可见内容
+            if driver is None:
+                # 读取所有可见元素，不限制bounds
+                visible_count += 1
+            else:
+                # 如果提供了driver，可以可选地检查bounds（但通常不需要，因为要读取全部内容）
+                visible_count += 1
+            
+            # 获取 Android 的 'text' 属性
+            element_text = element.get(
+                'text') or element.get('content-desc') or ''
+            if element_text and element_text.strip():
+                all_elements_text.add(element_text.strip())
+                
+                # 提取航班号（格式：2-3个大写字母 + 3-4个数字）
+                # 修改正则表达式，支持中文前缀（如"深航ZH9515"），不使用单词边界
+                # 匹配模式：2-3个大写字母后跟3-4个数字，前面可能有中文字符
+                # 使用更宽松的匹配，支持2-4个字母和3-5个数字的组合
+                flight_matches = re.findall(r'[A-Z]{2,4}\d{3,5}', element_text)
+                # 进一步验证：确保匹配的是有效的航班号格式
+                # 标准格式：2-3个字母 + 3-4个数字，但也接受2-4个字母 + 3-5个数字的变体
+                valid_flights = []
+                for f in flight_matches:
+                    # 验证格式：至少2个字母，至少3个数字，总长度至少5
+                    if len(f) >= 5 and re.match(r'^[A-Z]{2,4}\d{3,5}$', f):
+                        # 标准化：如果是4个字母或5个数字，可能是误匹配，但先接受
+                        valid_flights.append(f)
+                unique_flights.update(valid_flights)
+        
+        return unique_flights, all_elements_text, visible_count
+        
+    except Exception as e:
+
+        print(f"⚠️ XML解析失败，使用正则表达式回退: {e}")
+        # 回退方案：直接使用正则表达式从字符串中提取
+        # 修改正则表达式，支持中文前缀，不使用单词边界
+        all_matches = re.findall(r'[A-Z]{2,3}\d{3,4}', page_source)
+        # 验证匹配结果的格式
+        unique_flights = set([f for f in all_matches if len(
+            f) >= 5 and re.match(r'^[A-Z]{2,3}\d{3,4}$', f)])
+        return unique_flights, set(), 0
+
+
+def scroll_to_top(driver, use_w3c_actions=True):
+    """
+    滚动到页面顶部
+    优先使用 UiScrollable，失败则使用 W3C Actions API 或传统 swipe
+    """
+    print("🔄 滚动到页面顶部...")
+    try:
+        # 优先使用 UiScrollable 滚动到顶部
+        driver.find_element(
+            AppiumBy.ANDROID_UIAUTOMATOR,
+                          'new UiScrollable(new UiSelector().scrollable(true)).scrollToBeginning(5)')
+        time.sleep(1)
+        return True
+    except Exception as e:
+
+        print(f"⚠️ UiScrollable滚动到顶部失败，使用备用方法: {e}")
+        # 备用方案：从下往上swipe多次（向上滚动，回到顶部）
+        screen_size = driver.get_window_size()
+        start_x = screen_size['width'] // 2
+        start_y = screen_size['height'] * 0.8
+        end_y = screen_size['height'] * 0.2
+        
+        for _ in range(5):
+            if use_w3c_actions:
+                try:
+                    actions = ActionChains(driver)
+                    actions.w3c_actions = ActionBuilder(
+                        driver, mouse=PointerInput(
+                            interaction.POINTER_TOUCH, "touch"))
+                    actions.w3c_actions.pointer_action.move_to_location(
+                        int(start_x), int(start_y))
+                    actions.w3c_actions.pointer_action.pointer_down()
+                    actions.w3c_actions.pointer_action.move_to_location(
+                        int(start_x), int(end_y))
+                    actions.w3c_actions.pointer_action.pause(0.25)
+                    actions.w3c_actions.pointer_action.release()
+                    actions.perform()
+                except BaseException:
+
+                    # W3C Actions 失败，使用传统方法
+                    driver.swipe(
+                        int(start_x),
+                        int(start_y),
+                        int(start_x),
+                        int(end_y),
+                        1000)
+            else:
+                driver.swipe(
+                    int(start_x),
+                    int(start_y),
+                    int(start_x),
+                    int(end_y),
+                    1000)
+            time.sleep(0.5)
+        return False
+
+
+def perform_scroll_forward(driver, scroll_steps=3, scrollable_info=None):
+    """
+    执行方式1：使用scrollForward滚动，针对可滚动列表元素
+    优先尝试UiScrollable，失败则使用中间区域swipe
+    
+    Args:
+        driver: WebDriver实例
+        scroll_steps: 滚动步数
+        scrollable_info: 可滚动元素信息字典（可选）
+    
+    Returns:
+        bool: 是否滚动成功
+    """
+    try:
+        if driver.capabilities.get('platformName') == 'Android':
+            # 优先尝试使用UiScrollable（它会自动找到可滚动元素）
+            try:
+                driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                  f'new UiScrollable(new UiSelector().scrollable(true)).setAsVerticalList().scrollForward({scroll_steps})')
+                return True
+            except BaseException:
+
+                # UiScrollable失败，使用中间区域swipe
+                swipe_down_in_middle(driver, scrollable_info)
+                return True
+        else:
+            swipe_down_in_middle(driver, scrollable_info)
+            return True
+    except Exception as e:
+
+
+        # 如果都失败，尝试swipe
+        try:
+            swipe_down_in_middle(driver, scrollable_info)
+            return True
+        except BaseException:
+
+            return False
+
+
+def perform_scroll_backward(driver, scroll_steps=3, scrollable_info=None):
+    """
+    执行方式2：使用scrollBackward滚动，针对可滚动列表元素
+    优先尝试UiScrollable，失败则使用中间区域swipe
+    
+    Args:
+        driver: WebDriver实例
+        scroll_steps: 滚动步数
+        scrollable_info: 可滚动元素信息字典（可选）
+    
+    Returns:
+        bool: 是否滚动成功
+    """
+    try:
+        if driver.capabilities.get('platformName') == 'Android':
+            # 优先尝试使用UiScrollable
+            try:
+                driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                  f'new UiScrollable(new UiSelector().scrollable(true)).setAsVerticalList().scrollBackward({scroll_steps})')
+                return True
+            except BaseException:
+
+                # UiScrollable失败，使用中间区域反向swipe（向上滑动）
+                swipe_up_in_middle(driver, scrollable_info)
+                return True
+        else:
+            # 对于非Android，在中间区域反向滑动（向上滑动）
+            swipe_up_in_middle(driver, scrollable_info)
+            return True
+    except Exception as e:
+
+
+        return False
+
+
+def swipe_up_in_middle(driver, scrollable_info=None, use_w3c_actions=True):
+    """
+    在页面中间区域模拟向上滑动操作（向上滚动，显示上面的内容）。
+    针对可滚动区域进行滑动，避免触碰头部和底部固定区域。
+    优先使用 W3C Actions API，如果失败则回退到传统 swipe 方法。
+    
+    Args:
+        driver: WebDriver实例
+        scrollable_info: 可滚动元素的信息字典（如果为None，则在页面中间区域滑动）
+        use_w3c_actions: 是否使用 W3C Actions API（默认True）
+    """
+    screen_size = driver.get_window_size()
+    start_x = screen_size['width'] // 2
+    
+    # 计算滑动坐标（向上滑动：从下往上，start_y > end_y）
+    if scrollable_info and 'location' in scrollable_info and 'size' in scrollable_info:
+        try:
+            # 获取可滚动元素的位置和大小
+            location = scrollable_info['location']
+            size = scrollable_info['size']
+            
+            # 在可滚动元素的中间区域进行反向滑动（从下往上，使用更小的范围60%-40%）
+            start_y = location['y'] + size['height'] * 0.6  # 元素下方60%处
+            end_y = location['y'] + size['height'] * 0.4      # 元素上方40%处
+
+            # 确保坐标在屏幕范围内，并且滑动距离不要太大
+            start_y = max(50, min(start_y, screen_size['height'] - 50))
+            end_y = max(50, min(end_y, screen_size['height'] - 50))
+            
+            # 限制滑动距离，避免拖动整个页面（最大滑动距离为屏幕高度的20%）
+            swipe_distance = abs(end_y - start_y)
+            max_swipe_distance = screen_size['height'] * 0.2
+            if swipe_distance > max_swipe_distance:
+                end_y = start_y + max_swipe_distance
+
+            print(
+                f"📍 在可滚动元素内向上滑动（显示上面的内容）: 从 Y={
+                    start_y:.0f} 到 Y={
+                    end_y:.0f} (元素位置: {location}, 大小: {size})")
+        except Exception as e:
+
+            print(f"⚠️ 在可滚动元素内向上滑动失败: {e}，回退到中间区域滑动")
+            # 使用页面高度的60%到40%进行滑动（更小的范围，避免拖动整个页面）
+            start_y = screen_size['height'] * 0.6
+            end_y = screen_size['height'] * 0.4
+    else:
+        # 备用方案：在页面中间区域向上滑动（使用更小的范围60%-40%，避免拖动整个页面）
+        start_y = screen_size['height'] * 0.6  # 从屏幕下方60%开始
+        end_y = screen_size['height'] * 0.4    # 滑动到屏幕上方40%
+        # 确保滑动距离足够小，只触发列表滚动而不拖动整个页面
+        swipe_distance = abs(end_y - start_y)
+        if swipe_distance > screen_size['height'] * 0.3:
+            # 如果距离太大，限制在屏幕高度的20%以内
+            end_y = start_y + screen_size['height'] * 0.2
+        print(
+            f"📍 在页面中间区域向上滑动（显示上面的内容）: 从 Y={
+                start_y:.0f} (页面高度40%) 到 Y={
+                end_y:.0f} (页面高度60%)")
+    
+    # 优先使用 W3C Actions API
+    if use_w3c_actions:
+        try:
+            actions = ActionChains(driver)
+            actions.w3c_actions = ActionBuilder(
+                driver, mouse=PointerInput(
+                    interaction.POINTER_TOUCH, "touch"))
+            actions.w3c_actions.pointer_action.move_to_location(
+                int(start_x), int(start_y))
+            actions.w3c_actions.pointer_action.pointer_down()
+            actions.w3c_actions.pointer_action.move_to_location(
+                int(start_x), int(end_y))
+            actions.w3c_actions.pointer_action.pause(0.25)  # 添加暂停，模拟真实触摸
+            actions.w3c_actions.pointer_action.release()
+            actions.perform()
+            return
+        except Exception as e:
+
+            print(f"⚠️ W3C Actions API 向上滑动失败: {e}，回退到传统 swipe 方法")
+    
+    # 回退到传统 swipe 方法
+    # 使用更短的持续时间（500ms而不是800ms），使滑动更精确
+    try:
+        driver.swipe(int(start_x), int(start_y), int(start_x), int(end_y), 500)
+    except Exception as e:
+
+        print(f"⚠️ 传统 swipe 方法也失败: {e}")
+
+
+def perform_scroll_swipe(driver, scrollable_info=None, direction='down'):
+    """
+    执行方式3：使用swipe在中间区域滚动（备用方案）
+    
+    Args:
+        driver: WebDriver实例
+        scrollable_info: 可滚动元素信息字典（可选）
+        direction: 滚动方向，'down'（向下，显示下面内容）或'up'（向上，显示上面内容）
+    
+    Returns:
+        bool: 是否滚动成功
+    """
+    try:
+        if direction == 'down':
+            swipe_down_in_middle(driver, scrollable_info)
+        else:
+            swipe_up_in_middle(driver, scrollable_info)
+        return True
+    except Exception as e:
+
+        return False
+
+
+def perform_scroll(driver, scroll_steps=3):
+    """
+    执行滚动操作（兼容旧代码）
+    
+    Args:
+        driver: WebDriver实例
+        scroll_steps: UiScrollable的滚动步数
+    
+    Returns:
+        bool: 是否滚动成功
+    """
+    # 默认尝试方式1
+    if perform_scroll_forward(driver, scroll_steps):
+        return True
+    # 失败则尝试方式2
+    if perform_scroll_backward(driver, scroll_steps):
+        return True
+    # 都失败则使用swipe
+    return perform_scroll_swipe(driver)
+
+
+def smart_scroll_and_capture(driver, output_dir):
+    """
+    使用智能滚动策略：先测试两种滚动方式，找到有效方式后持续使用，
+    当有效方式失效时重新测试两种方式，都失效才结束
+    针对页面中间的可滚动区域进行滚动，避免触碰头部和底部固定区域
+    """
+    print("🔄 开始智能滚动以加载所有航班信息...")
+    
+    # 等待页面完全加载
+    time.sleep(3)
+    
+    # 查找页面中间的可滚动列表元素
+    print("🔍 查找页面中间的可滚动列表区域...")
+    scrollable_info = find_scrollable_list(driver)
+    
+    # 使用set数据结构自动去重，存储所有抓取到的元素
+    all_elements_text = set()
+    unique_flights = set()
+    max_scrolls = 50  # 增加最大滚动次数限制
+    scroll_count = 0
+    stable_count = 0  # 连续无变化的次数
+    effective_scroll_method = None  # 当前有效的滚动方式：'forward', 'backward', 'swipe', None
+    
+    # 定义滚动方式（传入scrollable_info参数）
+    scroll_methods = [
+        ('forward',
+         lambda: perform_scroll_forward(
+             driver,
+             3,
+             scrollable_info),
+            'scrollForward'),
+        ('backward',
+         lambda: perform_scroll_backward(
+             driver,
+             3,
+             scrollable_info),
+            'scrollBackward'),
+    ]
+
+    # 滚动到页面顶部（确保从页头开始）
+    print("📍 滚动到页面顶部，准备从页头开始逐步向下滚动...")
+    scroll_to_top(driver)
+    time.sleep(2)  # 等待滚动到顶部完成
+    
+    print("🔄 开始智能滚动并提取页面内容（从页头逐步向下滚动到页尾）...")
+    min_scrolls = 5  # 最小滚动次数，确保至少滚动多次以加载所有内容
+    initial_scrolls = 0
+    while max_scrolls > 0:
+        scroll_count += 1
+        initial_scrolls += 1
+        print(f"🔄 第{scroll_count}次滚动...")
+        
+        # 1. 如果是第一次迭代，直接获取初始page_source；否则先滚动再获取
+        if scroll_count == 1:
+            # 第一次迭代：直接获取初始页面内容
+            try:
+                current_page_source = driver.page_source
+            except Exception as e:
+
+                print(f"⚠️ 获取页面源码失败: {e}")
+                break
+        else:
+            # 后续迭代：先执行滚动操作，然后等待，再获取新的page_source
+            if effective_scroll_method:
+                # 使用有效的滚动方式（统一使用向下滚动以加载更多内容）
+                if effective_scroll_method.startswith('swipe_'):
+                    # 如果之前测试的是swipe_up，说明向上滚动有效，但我们需要向下滚动加载更多
+                    # 所以统一使用向下滚动
+                    perform_scroll_swipe(
+                        driver, scrollable_info, direction='down')
+                elif effective_scroll_method == 'forward':
+
+                    perform_scroll_forward(driver, 3, scrollable_info)
+                elif effective_scroll_method == 'backward':
+
+                    perform_scroll_backward(driver, 3, scrollable_info)
+                else:
+                    # 默认向下滚动以加载更多内容
+                    perform_scroll_swipe(
+                        driver, scrollable_info, direction='down')
+            else:
+                # 没有有效方式，默认向下滚动以加载更多内容
+                perform_scroll_swipe(driver, scrollable_info, direction='down')
+            
+            # 等待滚动完成和内容加载（增加等待时间确保内容完全加载）
+            time.sleep(3.0)
+            
+            # 获取滚动后的page_source
+            try:
+                current_page_source = driver.page_source
+            except Exception as e:
+
+                print(f"⚠️ 获取页面源码失败: {e}")
+                break
+        
+        # 2. 解析 XML，提取所有可见区域内容（不传入driver，读取全部内容以确保不遗漏）
+        # 注意：传入driver=None以读取所有displayed="true"的元素，不限制bounds
+        current_flights, current_elements_text, current_element_count = extract_flight_elements_from_xml(
+            current_page_source, driver=None)
+        
+        # 调试信息：打印提取到的航班号
+        if current_flights:
+            print(f"🔍 本次提取到航班号: {sorted(current_flights)}")
+        
+        # 记录更新前的数量
+        previous_flight_count = len(unique_flights)
+        previous_elements_count = len(all_elements_text)
+        
+        # 3. 更新全局集合
+        all_elements_text.update(current_elements_text)
+        unique_flights.update(current_flights)
+        
+        # 4. 检查是否有新内容
+        all_elements_count_after = len(all_elements_text)
+        new_elements_count = all_elements_count_after - previous_elements_count
+        current_flight_count = len(unique_flights)
+        new_flights_count = current_flight_count - previous_flight_count
+        
+        print(f"📊 当前元素数量: {current_element_count}, 总元素数: {all_elements_count_after}, "
+              f"新增元素: {new_elements_count}, 唯一航班: {current_flight_count}, 新增航班: {new_flights_count}")
+        
+        # 判断是否有新内容
+        has_new_content = new_elements_count > 0 or new_flights_count > 0
+        
+        if has_new_content:
+            # 有新内容，重置稳定计数
+            stable_count = 0
+            print(f"✅ 发现新内容（元素+{new_elements_count}, 航班+{new_flights_count}）")
+        
+        # 如果没有有效的滚动方式，测试所有方式找到有效的
+        if not effective_scroll_method:
+            print("🔍 测试所有滚动方式以找到有效方式...")
+            method_found = False
+            
+            for method_name, scroll_func, method_desc in scroll_methods:
+                print(f"  🧪 测试方式: {method_desc}")
+                
+                # 记录测试前的状态
+                test_before_elements = len(all_elements_text)
+                test_before_flights = len(unique_flights)
+                
+                # 执行滚动
+                if scroll_func():
+                    time.sleep(2.5)  # 增加等待时间，确保WebView内容加载完成
+                    
+                    # 获取滚动后的页面状态
+                    try:
+                        test_page_source = driver.page_source
+                        # 使用driver=None以读取所有可见内容，不限制bounds
+                        test_flights, test_elements_text, _ = extract_flight_elements_from_xml(
+                            test_page_source, driver=None)
+                        
+                        # 检查是否有新内容
+                        all_elements_text.update(test_elements_text)
+                        unique_flights.update(test_flights)
+                        
+                        test_after_elements = len(all_elements_text)
+                        test_after_flights = len(unique_flights)
+                        
+                        test_new_elements = test_after_elements - test_before_elements
+                        test_new_flights = test_after_flights - test_before_flights
+                        
+                        if test_new_elements > 0 or test_new_flights > 0:
+                            effective_scroll_method = method_name
+                            method_found = True
+                            print(
+                                f"  ✅ 方式 {method_desc} 有效！发现新内容（元素+{test_new_elements}, 航班+{test_new_flights}）")
+                            print(f"  📌 将使用方式: {method_desc}")
+                            break
+                        else:
+                            print(f"  ❌ 方式 {method_desc} 未发现新内容")
+                            # 回滚状态
+                            # 注意：这里不能完全回滚，因为可能已经加载了部分内容
+                    except Exception as e:
+
+                        print(f"  ⚠️ 测试方式 {method_desc} 时出错: {e}")
+                else:
+                    print(f"  ❌ 方式 {method_desc} 执行失败")
+            
+            if not method_found:
+                # 如果所有方式都无效，尝试swipe down方式（向下滚动以加载更多内容）
+                swipe_dir = 'down'
+                print(f"  🧪 测试备用方式: swipe {swipe_dir} (中间区域)")
+                test_before_elements = len(all_elements_text)
+                test_before_flights = len(unique_flights)
+                
+                if perform_scroll_swipe(
+                        driver, scrollable_info, direction=swipe_dir):
+                    # 增加等待时间，确保WebView内容完全加载
+                    time.sleep(3.0)
+                    try:
+                        test_page_source = driver.page_source
+                        # 提取所有可见区域的内容（不限制bounds，因为滚动可能加载了屏幕外的内容）
+                        test_flights, test_elements_text, _ = extract_flight_elements_from_xml(
+                            test_page_source, driver=None)
+                        
+                        all_elements_text.update(test_elements_text)
+                        unique_flights.update(test_flights)
+                        
+                        test_after_elements = len(all_elements_text)
+                        test_after_flights = len(unique_flights)
+                        
+                        test_new_elements = test_after_elements - test_before_elements
+                        test_new_flights = test_after_flights - test_before_flights
+                        
+                        if test_new_elements > 0 or test_new_flights > 0:
+                            effective_scroll_method = f'swipe_{swipe_dir}'
+                            method_found = True
+                            print(
+                                f"  ✅ swipe {swipe_dir} 方式有效！发现新内容（元素+{test_new_elements}, 航班+{test_new_flights}）")
+                            print(f"  📌 将使用方式: swipe {swipe_dir}")
+                        else:
+                            print(f"  ❌ swipe {swipe_dir} 方式未发现新内容")
+                    except Exception as e:
+
+                        print(f"  ⚠️ 测试swipe {swipe_dir}方式时出错: {e}")
+                
+                # 即使没有找到有效方式，如果还在最小滚动次数内，也强制继续滚动（使用swipe down）
+                if not method_found and initial_scrolls < min_scrolls:
+                    print(
+                        f"⚠️ 未找到有效滚动方式，但仍在最小滚动次数内（{initial_scrolls}/{min_scrolls}），强制继续向下滚动...")
+                    # 尝试向下滚动以加载更多内容
+                    perform_scroll_swipe(
+                        driver, scrollable_info, direction='down')
+                    time.sleep(3.0)
+                    max_scrolls -= 1
+                    continue
+                
+                # 如果所有方式都测试过且都无效，且已经达到最小滚动次数，结束滚动
+                if not method_found:
+                    if initial_scrolls >= min_scrolls:
+                        print("❌ 所有滚动方式都无效，未发现新内容，结束滚动")
+                        break
+                    else:
+                        # 继续尝试向下滚动以加载更多内容
+                        print(
+                            f"📌 继续向下滚动（最小滚动次数: {initial_scrolls}/{min_scrolls}）...")
+                        perform_scroll_swipe(
+                            driver, scrollable_info, direction='down')
+                        time.sleep(3.0)
+                        max_scrolls -= 1
+                        continue
+                else:
+                    # 找到了有效方式，继续下一轮滚动
+                    max_scrolls -= 1
+                    continue
+        else:
+            # 有有效方式，继续使用
+            # 注意：滚动已经在循环开始处执行了，这里只需要处理逻辑判断
+            if has_new_content:
+                # 有新内容，重置稳定计数，继续下一轮（滚动已在循环开始处执行）
+                stable_count = 0
+                max_scrolls -= 1
+                continue
+            else:
+                # 没有新内容
+                stable_count += 1
+                print(f"⚠️ 未发现新内容，稳定计数: {stable_count}")
+                
+                # 如果还在最小滚动次数内，强制继续滚动（即使没有检测到新内容）
+                if initial_scrolls < min_scrolls:
+                    print(
+                        f"📌 仍在最小滚动次数内（{initial_scrolls}/{min_scrolls}），继续向下滚动...")
+                    # 滚动已在循环开始处执行，这里只需要继续
+                    max_scrolls -= 1
+                    continue
+                
+                # 如果稳定计数达到阈值（连续3次无新内容），重新测试所有滚动方式
+                if stable_count >= 3:
+                    print("🔄 当前滚动方式无新内容，重新测试所有滚动方式...")
+                    effective_scroll_method = None  # 重置有效方式
+                    stable_count = 0  # 重置稳定计数
+                    continue
+                else:
+                    # 尝试大幅度滚动（统一使用向下滚动以加载更多内容）
+                    print(f"🔄 尝试大幅度向下滚动...")
+                    perform_scroll_swipe(
+                        driver, scrollable_info, direction='down')
+                    time.sleep(3.0)
+                    max_scrolls -= 1
+                    continue
+        
+        max_scrolls -= 1
+    
+    print(
+        f"🏁 滚动完成，总共滚动 {scroll_count} 次，总元素数: {
+            len(all_elements_text)}, 唯一航班: {
+            len(unique_flights)}")
+    if effective_scroll_method:
+        print(f"📌 最终使用的有效滚动方式: {effective_scroll_method}")
+    
+    # 最后滚动回顶部以便完整查看和提取
+    print("📍 滚动回页面顶部以便完整提取所有内容...")
+    scroll_to_top(driver)
+    
+    # 等待页面稳定
+    time.sleep(2)
+    
+    # 获取最终页面源码
+    try:
+        page_source = driver.page_source
+        # 最终提取时也读取全部可见内容，不限制bounds
+        final_flights, _, final_element_count = extract_flight_elements_from_xml(
+            page_source, driver=None)
+        print(
+            f"✅ 最终页面源码长度: {
+                len(page_source)} 字符，元素数: {final_element_count}, 唯一航班: {
+                len(final_flights)}")
+    except Exception as e:
+
+        print(f"⚠️ 获取最终页面源码失败: {e}")
+        page_source = ""
+    
+    # 保存页面源码
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(output_dir, exist_ok=True)
+    fp = os.path.join(output_dir, f"flight_page_source_{ts}.xml")
+    try:
+        with open(fp, 'w', encoding='utf-8') as f:
+            f.write(page_source)
+        print(f"💾 页面源码已保存到: {fp}")
+    except Exception as e:
+
+        print(f"⚠️ 保存页面源码失败: {e}")
+        fp = None
+    
+    return page_source, fp
+
+
+def launch_12306_app(driver):
+    """启动12306应用"""
+    print("📱 启动12306应用...")
+    
+    try:
+        # 终止应用（如果正在运行）
+        try:
+            driver.terminate_app("com.MobileTicket")
+            print("✅ 已终止现有12306应用")
+            time.sleep(2)
+        except Exception as e:
+
+            print(f"⚠️ 终止应用时出错: {e}")
+        
+        # 检查是否回到主屏幕
+        try:
+            home_screen_indicators = [
+                "com.android.launcher3",
+                "com.android.launcher", 
+                "com.google.android.apps.nexuslauncher",
+                "com.miui.home"
+            ]
+            
+            current_activity = driver.current_activity
+            print(f"📱 当前Activity: {current_activity}")
+            
+            is_home_screen = any(
+                indicator in current_activity for indicator in home_screen_indicators)
+            
+            if not is_home_screen:
+                print("⚠️ 未检测到主屏幕，尝试按Home键...")
+                driver.press_keycode(3)  # Home键
+                time.sleep(1)
+        except Exception as e:
+
+            print(f"⚠️ 检查主屏幕状态时出错: {e}")
+        
+        # 启动12306应用
+        print("🚀 启动12306应用...")
+        driver.activate_app("com.MobileTicket")
+        print("✅ 12306应用已启动")
+        time.sleep(3)  # 等待应用完全加载
+        
+        return True
+        
+    except Exception as e:
+
+
+        print(f"❌ 启动12306应用失败: {e}")
+        return False
+
+
+def wait_step(driver, seconds=2):
+    """步骤间等待"""
+    print(f"⏳ 等待 {seconds} 秒...")
+    time.sleep(seconds)
+
+
+def step2_check_homepage(driver):
+    """步骤2: 检查主页面（含重试/广告处理）"""
+    print("\n🏠 步骤2: 检查主页面（含重试/广告处理）")
+
+    max_attempts = 6  # 增加重试次数，覆盖首次冷启动广告/引导页
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # 优先尝试关闭可能的广告或引导弹窗
+            try:
+                for acc_id in [
+                    "跳过", "关闭", "以后再说", "我知道了", "同意并继续"
+                ]:
+                    els = driver.find_elements(
+                        AppiumBy.ANDROID_UIAUTOMATOR,
+                        f'new UiSelector().text("{acc_id}")')
+                    if els:
+                        els[0].click()
+                        print(f"🧹 关闭了弹窗: {acc_id}")
+                        wait_step(driver, 1)
+                        break
+            except Exception:
+
+                pass
+
+            # 检查主页面容器
+            home_container = driver.find_element(
+                AppiumBy.ID, "com.MobileTicket:id/ticket_home_content_container")
+            print("✅ 主页面容器已找到")
+            wait_step(driver)
+            return True
+
+        except NoSuchElementException:
+
+
+            print(f"⚠️ 第{attempt}/{max_attempts}次：主页面未就绪，等待后重试…")
+            wait_step(driver, 2)
+            continue
+        except Exception as e:
+
+
+            print(f"❌ 检查主页面失败: {e}")
+            wait_step(driver, 2)
+            continue
+
+    print("❌ 多次尝试仍未进入主页面")
+    return False
+
+
+def step3_click_air_rail_transfer(driver):
+    """步骤3: 点击空铁联运按钮（带循环重试）"""
+    print("\n🚄 步骤3: 点击空铁联运按钮")
+    
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        print(f"🔄 尝试 {attempt}/{max_attempts}")
+        
+        try:
+            # 点击空铁联运按钮
+            air_rail_button = driver.find_element(
+                AppiumBy.ACCESSIBILITY_ID, "空铁联运")
+            air_rail_button.click()
+            print("✅ 空铁联运按钮已点击")
+            
+            wait_step(driver)
+            return True
+            
+        except NoSuchElementException:
+
+            print(f"⚠️ 第{attempt}次尝试：空铁联运按钮未找到")
+            
+            if attempt < max_attempts:
+                print("🔄 退回到步骤2，重新检查主页面...")
+                # 退回到步骤2
+                if not step2_check_homepage(driver):
+                    print("❌ 主页面检查失败")
+                    return False
+                wait_step(driver, 2)  # 等待2秒后重试
+            else:
+                print("❌ 5次尝试后仍未找到空铁联运按钮")
+                return False
+                
+        except Exception as e:
+
+            print(f"❌ 第{attempt}次尝试失败: {e}")
+            if attempt >= max_attempts:
+                return False
+            wait_step(driver, 2)
+    
+    return False
+
+
+def step4_check_air_rail_page(driver):
+    """步骤4: 检查空铁联运页面或航班动态选项"""
+    print("\n✈️ 步骤4: 检查空铁联运页面或航班动态选项")
+    
+    try:
+        # 首先尝试检查空铁联运首页
+        try:
+            air_rail_page = driver.find_element(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                                               'new UiSelector().text("空铁联运首页")')
+            print("✅ 空铁联运首页已找到")
+            wait_step(driver)
+            return True
+        except NoSuchElementException:
+
+            print("⚠️ 空铁联运首页未找到，尝试查找航班动态选项...")
+        
+        # 如果空铁联运首页未找到，尝试查找航班动态选项
+        try:
+            flight_dynamic = driver.find_element(
+                AppiumBy.ANDROID_UIAUTOMATOR,
+                                               'new UiSelector().text("航班动态")')
+            print("✅ 航班动态选项已找到")
+            wait_step(driver)
+            return True
+        except NoSuchElementException:
+
+            print("❌ 航班动态选项也未找到")
+            return False
+            
+    except Exception as e:
+
+
+        print(f"❌ 检查页面失败: {e}")
+        return False
+
+
+def step4c_select_date(driver, depart_date):
+    """步骤4C: 选择出发日期（根据页面展示文案拼装并点击）"""
+    print("\n📅 步骤4C: 选择出发日期（按展示文案匹配）")
+    
+    if not depart_date:
+        print("ℹ️ 未提供出发日期，跳过选择")
+        return True
+        
+    try:
+        today = date.today()
+        weekday_map = {
+            0: "周一",
+            1: "周二",
+            2: "周三",
+            3: "周四",
+            4: "周五",
+            5: "周六",
+            6: "周日"}
+
+        # 查找任何形如"X月X日周X"格式的日期文本并点击激活日历视图
+        calendar_opened = False
+        print("🔄 尝试打开日历...")
+        try:
+            # 尝试点击任何包含"月"和"日"的按钮（包括历史日期）
+            page = driver.page_source
+            date_candidates = []
+            try:
+                root = etree.fromstring(page.encode('utf-8'))
+                for el in root.xpath('//*[@text]'):
+                    text = el.get('text') or ''
+                    # 匹配形如"10月27日周一"这样的日期格式
+                    if ('月' in text and '日' in text and (
+                            '周' in text or '今天' in text or '明天' in text or '后天' in text)):
+                        date_candidates.append(text)
+                        
+                print(f"🔍 找到的日期候选: {date_candidates}")
+                
+                # 尝试点击第一个找到的日期按钮
+                for text in date_candidates:
+                    try:
+                        btn = driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR,
+                            f'new UiSelector().text("{text}")')
+                        btn.click()
+                        print(f"✅ 已点击日期按钮: {text}")
+                        wait_step(driver, 1)
+                        calendar_opened = True
+                        break
+                    except Exception as e:
+
+                        print(f"⚠️ 点击日期按钮失败: {text}, {e}")
+                        continue
+                        
+            except Exception as e:
+
+
+                print(f"⚠️ 解析页面失败: {e}")
+        except Exception as e:
+
+
+            print(f"⚠️ 打开日历失败: {e}")
+        
+        # 如果成功打开了日历，等待日历加载
+        if calendar_opened:
+            print("⏳ 等待日历完全加载...")
+            wait_step(driver, 2)  # 等待日历加载
+            print("✅ 日历已加载完成")
+
+        try:
+            target = datetime.strptime(depart_date, "%Y-%m-%d").date()
+        except Exception:
+
+            print(f"⚠️ 出发日期格式非法: {depart_date}")
+            return True
+
+        # 生成候选展示文案
+        month_day = f"{target.month}月{target.day}日"
+        delta = (target - today).days
+        candidates = []
+        if delta == 0:
+            candidates.append(f"{month_day}今天")
+        elif delta == 1:
+
+            candidates.append(f"{month_day}明天")
+        elif delta == 2:
+
+            candidates.append(f"{month_day}后天")
+        # 周几文案始终作为候选
+        candidates.append(f"{month_day}{weekday_map[target.weekday()]}")
+
+        # 提取页面文本（如果日历已打开，使用刷新后的页面源码）
+        if not calendar_opened:
+            page = driver.page_source
+        
+        visible_texts = set()
+        try:
+            root = etree.fromstring(page.encode('utf-8'))
+            for el in root.xpath('//*[@text]'):
+                t = el.get('text') or ''
+                if t:
+                    visible_texts.add(t)
+        except Exception:
+
+            pass
+
+        # 调试：打印所有可见的日期相关文本
+        date_related_texts = [
+            t for t in visible_texts if '月' in t and '日' in t]
+        print(f"🔍 页面中找到的日期相关文本: {date_related_texts}")
+        print(f"🎯 目标候选文案: {candidates}")
+        
+        # 如果日历已打开，也显示所有可见文本以便调试
+        if calendar_opened:
+            all_texts = [t for t in visible_texts if t.strip()]
+            print(f"🔍 日历视图中的所有文本: {all_texts[:20]}...")  # 只显示前20个避免日志过长
+            
+            # 特别查找目标日期的数字
+            target_day_str = str(target.day)
+            day_texts = [t for t in all_texts if target_day_str in t]
+            print(f"🎯 包含目标日期数字 '{target_day_str}' 的文本: {day_texts}")
+
+        # 策略1：如果日历已打开，先查找月份区块头部，然后在对应的日期区块中定位日期
+        if calendar_opened:
+            print("🔄 策略1：在日历中选择目标日期...")
+            target_month = target.month
+            target_day = target.day
+            target_year = target.year
+            target_day_str = str(target_day)
+            target_month_str = f"{target_month}月"
+            target_year_month_text = f"{target_year}年{target_month}月"
+            target_month_text_short = f"{target_month}月"  # 也可能只有月份，没有年份
+            print(f"🎯 目标日期: {target_year}年{target_month}月{target_day}日")
+
+            # 刷新页面源码以获取最新的日历内容
+            try:
+                page = driver.page_source
+                root = etree.fromstring(page.encode('utf-8'))
+            except BaseException:
+
+                page = driver.page_source
+                root = etree.fromstring(page.encode('utf-8'))
+
+            def parse_bounds(bounds_str):
+                """解析bounds字符串，返回(x1, y1, x2, y2)"""
+                try:
+                    match = re.search(
+                        r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds_str)
+                    if match:
+                        return tuple(map(int, match.groups()))
+                except BaseException:
+
+                    pass
+                return None
+
+            # 第一步：查找月份区块头部（如"2026年1月"或"1月"）
+            month_header_element = None
+            month_header_bounds = None
+            found_target_month = False
+            next_month_header_y = None  # 下一个月份标题的Y坐标，用于限制搜索范围
+
+            try:
+                all_elements = root.xpath('//*[@text and @bounds]')
+                # 先找到所有月份标题，确定目标月份和下一个月份的位置
+                month_headers = []
+                for el in all_elements:
+                    text = el.get('text', '').strip()
+                    bounds = el.get('bounds', '')
+                    bounds_tuple = parse_bounds(bounds)
+
+                    if not bounds_tuple:
+                        continue
+
+                    # 匹配完整格式："2026年1月"或"2025年12月"等
+                    year_month_match = re.match(r'^(\d{4})年(\d{1,2})月$', text)
+                    if year_month_match:
+                        year = int(year_month_match.group(1))
+                        month = int(year_month_match.group(2))
+                        month_headers.append({
+                            'element': el,
+                            'bounds': bounds_tuple,
+                            'year': year,
+                            'month': month,
+                            'text': text,
+                            'y': bounds_tuple[1]
+                        })
+                    # 匹配短格式："1月"或"12月"等
+                    elif re.match(r'^\d{1,2}月$', text):
+
+                        month_match = re.match(r'^(\d{1,2})月$', text)
+                        if month_match:
+                            month = int(month_match.group(1))
+                            month_headers.append({
+                                'element': el,
+                                'bounds': bounds_tuple,
+                                'year': None,  # 年份未知
+                                'month': month,
+                                'text': text,
+                                'y': bounds_tuple[1]
+                            })
+
+                # 按Y坐标排序
+                month_headers.sort(key=lambda x: x['y'])
+
+                # 查找目标月份标题
+                for header in month_headers:
+                    # 匹配完整格式
+                    if header['year'] == target_year and header['month'] == target_month:
+                        month_header_element = header['element']
+                        month_header_bounds = header['bounds']
+                        found_target_month = True
+                        print(f"✅ 找到目标月份标题: {header['text']}, Y={header['y']}")
+
+                        # 查找下一个月份标题的Y坐标（用于限制搜索范围）
+                        for next_header in month_headers:
+                            if next_header['y'] > header['y']:
+                                next_month_header_y = next_header['y']
+                                print(f"📍 下一个月份标题位置: Y={next_month_header_y}")
+                                break
+                        break
+                    # 匹配短格式（如果年份未知，但月份匹配）
+                    elif header['year'] is None and header['month'] == target_month and not found_target_month:
+
+                        month_header_element = header['element']
+                        month_header_bounds = header['bounds']
+                        print(
+                            f"📅 找到月份标题: {
+                                header['text']}, Y={
+                                header['y']}，需要验证年份")
+
+                        # 查找下一个月份标题的Y坐标
+                        for next_header in month_headers:
+                            if next_header['y'] > header['y']:
+                                next_month_header_y = next_header['y']
+                                print(f"📍 下一个月份标题位置: Y={next_month_header_y}")
+                                break
+            except Exception as e:
+
+                print(f"⚠️ 查找月份标题失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # 第二步：如果没找到目标月份，尝试滑动查找
+            max_scroll_attempts = 12  # 最多滑动12次（一年）
+            scroll_attempt = 0
+
+            while not found_target_month and scroll_attempt < max_scroll_attempts:
+                # 刷新页面源码
+                try:
+                    page = driver.page_source
+                    root = etree.fromstring(page.encode('utf-8'))
+                    all_elements = root.xpath('//*[@text and @bounds]')
+
+                    for el in all_elements:
+                        text = el.get('text', '').strip()
+                        # 匹配完整格式："2026年1月"
+                        if text == target_year_month_text:
+                            month_header_element = el
+                            month_header_bounds = parse_bounds(
+                                el.get('bounds', ''))
+                            found_target_month = True
+                            print(f"✅ 滑动后找到目标月份标题: {text}")
+                            break
+                        # 匹配短格式："1月"
+                        elif text == target_month_text_short and not month_header_element:
+
+                            month_header_element = el
+                            month_header_bounds = parse_bounds(
+                                el.get('bounds', ''))
+                            print(f"📅 滑动后找到月份标题: {text}")
+                except Exception as e:
+                    print(f"⚠️ 刷新页面源码失败: {e}")
+
+                if found_target_month:
+                    break
+
+                # 如果还没找到，向下滑动（显示下一个月）
+                scroll_attempt += 1
+                tprint(
+                    f"🔄 未找到目标月份，向下滑动 ({scroll_attempt}/{max_scroll_attempts})...")
+                try:
+                    screen_size = driver.get_window_size()
+                    driver.swipe(
+                        screen_size['width'] // 2,
+                        screen_size['height'] * 0.5,
+                        screen_size['width'] // 2,
+                        screen_size['height'] * 0.2,
+                        500)
+                    wait_step(driver, 1)
+                except Exception as e:
+
+
+                    tprint(f"⚠️ 滑动失败: {e}")
+
+            # 第三步：如果找到了月份标题，重新刷新页面源码并重新定位月份标题（确保使用最新坐标）
+            if month_header_element is not None:
+                try:
+                    # 重新刷新页面源码，确保获取最新的坐标
+                    tprint("🔄 重新刷新页面源码以获取最新的月份标题位置...")
+                    page = driver.page_source
+                    root = etree.fromstring(page.encode('utf-8'))
+                    all_elements = root.xpath('//*[@text and @bounds]')
+
+                    # 重新查找月份标题，确保使用最新的坐标
+                    month_header_bounds = None
+                    next_month_header_y = None
+                    month_headers = []
+
+                    for el in all_elements:
+                        text = el.get('text', '').strip()
+                        bounds = el.get('bounds', '')
+                        bounds_tuple = parse_bounds(bounds)
+
+                        if not bounds_tuple:
+                            continue
+
+                        # 匹配完整格式："2026年2月"
+                        if text == target_year_month_text:
+                            month_header_bounds = bounds_tuple
+                            print(f"✅ 重新定位目标月份标题: {text}, Y={bounds_tuple[1]}")
+                            # 继续查找下一个月份标题
+                            for next_el in all_elements:
+                                next_text = next_el.get('text', '').strip()
+                                next_bounds = parse_bounds(
+                                    next_el.get('bounds', ''))
+                                if next_bounds and next_bounds[1] > bounds_tuple[1]:
+                                    # 检查是否是月份标题格式
+                                    if re.match(
+                                            r'^(\d{4})年(\d{1,2})月$',
+                                            next_text) or re.match(
+                                            r'^\d{1,2}月$',
+                                            next_text):
+                                        next_month_header_y = next_bounds[1]
+                                        print(
+                                            f"📍 重新定位下一个月份标题位置: Y={next_month_header_y}")
+                                        break
+                            break
+                        # 匹配短格式："2月"（如果之前找到的是短格式）
+                        elif text == target_month_text_short and month_header_bounds is None:
+                            month_header_bounds = bounds_tuple
+                            print(f"📅 重新定位月份标题: {text}, Y={bounds_tuple[1]}")
+
+                    if month_header_bounds is None:
+                        print(f"⚠️ 重新定位失败，使用之前找到的月份标题位置")
+                        # 如果重新定位失败，使用之前找到的位置
+                        if month_header_element is not None:
+                            old_bounds = month_header_element.get('bounds', '')
+                            month_header_bounds = parse_bounds(old_bounds)
+                except Exception as e:
+
+                    print(f"⚠️ 重新定位月份标题失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # 如果重新定位失败，使用之前找到的位置
+                    if month_header_element is not None:
+                        old_bounds = month_header_element.get('bounds', '')
+                        month_header_bounds = parse_bounds(old_bounds)
+
+            if month_header_bounds is not None:
+                month_header_y = month_header_bounds[1]  # 月份标题的顶部Y坐标
+                month_header_bottom = month_header_bounds[3]  # 月份标题的底部Y坐标
+                print(f"📍 月份标题位置: Y={month_header_y} 到 {month_header_bottom}")
+
+                # 检查月份标题是否在可见范围内，如果不在，需要向上滑动日历
+                screen_size = driver.get_window_size()
+                screen_height = screen_size['height']
+                visible_top = 0
+                visible_bottom = screen_height * 0.9  # 可见区域的底部（留10%的缓冲）
+
+                # 如果月份标题的Y坐标超出可见范围（在屏幕底部以下），需要向上滑动
+                if month_header_y > visible_bottom:
+                    print(
+                        f"⚠️ 月份标题Y坐标({month_header_y})超出可见范围({visible_bottom})，需要向上滑动日历...")
+                    max_scroll_up_attempts = 5
+                    scroll_up_attempt = 0
+
+                    while month_header_y > visible_bottom and scroll_up_attempt < max_scroll_up_attempts:
+                        scroll_up_attempt += 1
+                        tprint(
+                            f"🔄 向上滑动日历以显示月份标题 ({scroll_up_attempt}/{max_scroll_up_attempts})...")
+                        try:
+                            # 向上滑动：从屏幕中间向上滑动，显示下面的内容（月份标题在下方）
+                            # 注意：向上滑动意味着从下往上滑动，显示上面的内容
+                            driver.swipe(
+                                screen_size['width'] // 2,
+                                screen_height * 0.7,
+                                screen_size['width'] // 2,
+                                screen_height * 0.3,
+                                500)
+                            wait_step(driver, 1)
+
+                            # 重新刷新页面源码并重新定位月份标题
+                            page = driver.page_source
+                            root = etree.fromstring(page.encode('utf-8'))
+                            all_elements = root.xpath('//*[@text and @bounds]')
+
+                            # 重新查找月份标题
+                            for el in all_elements:
+                                text = el.get('text', '').strip()
+                                bounds = el.get('bounds', '')
+                                bounds_tuple = parse_bounds(bounds)
+
+                                if not bounds_tuple:
+                                    continue
+
+                                if text == target_year_month_text:
+                                    month_header_bounds = bounds_tuple
+                                    month_header_y = bounds_tuple[1]
+                                    month_header_bottom = bounds_tuple[3]
+                                    print(
+                                        f"✅ 滑动后重新定位月份标题: {text}, Y={month_header_y}")
+                                    break
+                                elif text == target_month_text_short and month_header_bounds is None:
+
+                                    month_header_bounds = bounds_tuple
+                                    month_header_y = bounds_tuple[1]
+                                    month_header_bottom = bounds_tuple[3]
+                                    print(
+                                        f"📅 滑动后重新定位月份标题: {text}, Y={month_header_y}")
+
+                            # 如果月份标题现在在可见范围内，停止滑动
+                            if month_header_y <= visible_bottom:
+                                print(f"✅ 月份标题已进入可见范围: Y={month_header_y}")
+                                break
+                        except Exception as e:
+
+                            tprint(f"⚠️ 向上滑动失败: {e}")
+                            break
+
+                    if month_header_y > visible_bottom:
+                        print(
+                            f"⚠️ 滑动后月份标题Y坐标({month_header_y})仍超出可见范围，但继续尝试搜索日期...")
+
+                # 确定搜索范围：从月份标题下方到下一个月份标题（如果存在）
+                search_y_min = month_header_bottom  # 搜索范围的最小Y坐标
+                search_y_max = next_month_header_y if next_month_header_y else float(
+                    'inf')  # 搜索范围的最大Y坐标
+                print(
+                    f"📍 日期搜索范围: Y={search_y_min} 到 {
+                        search_y_max if search_y_max != float('inf') else '屏幕底部'}")
+
+                # 查找该月份标题下方的所有日期元素
+                target_day_element = None
+                min_distance = float('inf')
+
+                try:
+                    # 重新刷新页面源码，确保使用最新的页面状态（可能已经滑动过）
+                    page = driver.page_source
+                    root = etree.fromstring(page.encode('utf-8'))
+                    all_elements = root.xpath('//*[@text and @bounds]')
+
+                    # 重新定位月份标题位置（确保使用最新的坐标）
+                    current_month_header_y = None
+                    current_month_header_bottom = None
+                    for el in all_elements:
+                        el_text = el.get('text', '').strip()
+                        if el_text == target_year_month_text or el_text == target_month_text_short:
+                            el_bounds = parse_bounds(el.get('bounds', ''))
+                            if el_bounds:
+                                current_month_header_y = el_bounds[1]
+                                current_month_header_bottom = el_bounds[3]
+                                break
+
+                    # 如果找到了月份标题，更新搜索范围
+                    if current_month_header_y is not None:
+                        month_header_y = current_month_header_y
+                        month_header_bottom = current_month_header_bottom
+                        search_y_min = month_header_bottom
+                        print(
+                            f"🔄 重新定位月份标题位置: Y={month_header_y}, 底部={month_header_bottom}")
+                        print(
+                            f"📍 更新后的日期搜索范围: Y={search_y_min} 到 {
+                                search_y_max if search_y_max != float('inf') else '屏幕底部'}")
+
+                    for el in all_elements:
+                        text = el.get('text', '').strip()
+                        bounds = el.get('bounds', '')
+                        bounds_tuple = parse_bounds(bounds)
+
+                        if not bounds_tuple:
+                            continue
+
+                        el_y = bounds_tuple[1]  # 元素的顶部Y坐标
+                        el_center_y = (
+                            bounds_tuple[1] + bounds_tuple[3]) / 2  # 元素的中心Y坐标
+
+                        # 检查是否是目标日期数字（纯数字且等于目标日期）
+                        if text == target_day_str:
+                            # 严格检查：元素必须在月份标题下方，且在下一个月份标题之前（如果存在）
+                            if el_y >= search_y_min and el_center_y < search_y_max:
+                                # 额外验证：检查日期元素周围是否有目标月份的相关文本（更严格的验证）
+                                # 查找日期元素附近的元素，检查是否有月份相关的文本
+                                is_in_target_month = True
+                                if current_month_header_y is not None:
+                                    # 检查日期元素是否在月份标题和下一个月份标题之间
+                                    # 同时检查日期元素附近是否有其他月份的标题（如果日期元素上方有其他月份标题，则不是目标月份）
+                                    for nearby_el in all_elements:
+                                        nearby_text = nearby_el.get(
+                                            'text', '').strip()
+                                        nearby_bounds = parse_bounds(
+                                            nearby_el.get('bounds', ''))
+                                        if nearby_bounds:
+                                            nearby_y = nearby_bounds[1]
+                                            # 如果日期元素上方有其他月份标题，且该月份标题在目标月份标题下方，则这个日期元素可能不在目标月份内
+                                            if nearby_y < el_y and nearby_y > month_header_bottom:
+                                                # 检查是否是月份标题格式
+                                                if ('月' in nearby_text and '年' in nearby_text) or (
+                                                        nearby_text.endswith('月') and len(nearby_text) <= 4):
+                                                    # 如果找到的月份标题不是目标月份，则这个日期元素不在目标月份内
+                                                    if nearby_text != target_year_month_text and nearby_text != target_month_text_short:
+                                                        is_in_target_month = False
+                                                        print(
+                                                            f"⚠️ 日期元素 {text} 上方发现其他月份标题: {nearby_text}，跳过")
+                                                        break
+
+                                if is_in_target_month:
+                                    # 计算与月份标题的距离（优先选择最近的）
+                                    distance = el_y - month_header_y
+                                    if distance < min_distance:
+                                        min_distance = distance
+                                        target_day_element = el
+                                        print(
+                                            f"📅 找到候选日期元素: {text}, 位置: Y={el_y}, 中心Y={
+                                                el_center_y:.0f}, 距离: {distance}")
+                            else:
+                                print(
+                                    f"⚠️ 日期元素 {text} 位置 Y={el_y} 不在搜索范围内（{search_y_min} 到 {
+                                        search_y_max if search_y_max != float('inf') else '屏幕底部'}），跳过")
+                except Exception as e:
+
+                    print(f"⚠️ 查找日期元素失败: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                # 如果找到了目标日期元素，点击它
+                if target_day_element is not None:
+                    try:
+                        day_text = target_day_element.get('text', '').strip()
+                        # 使用更精确的定位方式：结合文本和位置
+                        bounds_tuple = parse_bounds(
+                            target_day_element.get('bounds', ''))
+                        if bounds_tuple:
+                            # 尝试使用坐标点击，更精确
+                            center_x = (bounds_tuple[0] + bounds_tuple[2]) // 2
+                            center_y = (bounds_tuple[1] + bounds_tuple[3]) // 2
+                            try:
+                                driver.tap([(center_x, center_y)], 100)
+                                tprint(
+                                    f"✅ 成功点击目标日期: {day_text} (在 {target_year}年{target_month}月 区块中, 坐标: ({center_x}, {center_y}))")
+                                wait_step(driver, 1)
+                                return True
+                            except BaseException:
+
+                                # 如果坐标点击失败，尝试文本点击
+                                el_click = driver.find_element(
+                                    AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{day_text}")')
+                                el_click.click()
+                                tprint(
+                                    f"✅ 成功点击目标日期: {day_text} (在 {target_year}年{target_month}月 区块中)")
+                    wait_step(driver, 1)
+                    return True
+                except Exception as e:
+
+                        traceback.print_exc()
+                    else:
+                        print(
+                            f"⚠️ 在 {target_year}年{target_month}月 区块中未找到日期 {target_day}日")
+                    print(
+                        f"   搜索范围: Y={search_y_min} 到 {
+                            search_y_max if search_y_max != float('inf') else '屏幕底部'}")
+            else:
+                print(
+                    f"⚠️ 未找到目标月份标题: {target_year_month_text} 或 {target_month_text_short}")
+
+            # 第四步：如果上述方法都失败，尝试备用方法（直接查找日期数字，但需要更严格的筛选）
+            # 注意：只有在没有找到月份标题时才使用备用方法
+            if not found_target_month:
+                print("🔄 尝试备用方法：直接查找日期数字...")
+                try:
+                    page = driver.page_source
+                    root = etree.fromstring(page.encode('utf-8'))
+                    all_elements = root.xpath('//*[@text and @bounds]')
+
+                    # 查找所有包含目标日期数字的元素
+                    candidate_elements = []
+                    for el in all_elements:
+                        text = el.get('text', '').strip()
+                        if text == target_day_str:  # 只匹配纯数字
+                            bounds_tuple = parse_bounds(el.get('bounds', ''))
+                            if bounds_tuple:
+                                candidate_elements.append((el, bounds_tuple))
+
+                    if candidate_elements:
+                        print(
+                            f"📅 找到 {
+                                len(candidate_elements)} 个日期数字 '{target_day_str}' 的候选元素")
+                        # 选择Y坐标最大的（通常是最下方的，可能是目标月份）
+                        candidate_elements.sort(
+                            key=lambda x: x[1][1], reverse=True)
+                        # 尝试点击第一个候选元素
+                        # 最多尝试前3个
+                        for el, bounds_tuple in candidate_elements[:3]:
+                            try:
+                                el_click = driver.find_element(
+                                    AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{target_day_str}")')
+                                el_click.click()
+                                print(f"✅ 备用方法：成功点击日期数字: {target_day_str}")
+                                wait_step(driver, 1)
+                                return True
+                            except BaseException:
+                                continue
+            except Exception as e:
+                        print(f"⚠️ 备用方法失败: {e}")
+                except Exception as e:
+                    print("⚠️ 已找到月份标题，但未找到目标日期，不使用备用方法以避免误选")
+            
+            # 如果所有方法都失败
+            print("❌ 所有尝试失败，无法找到目标日期")
+            print(f"❌ 目标日期: {target_year}年{target_month}月{target_day}日")
+            print(f"❌ 当前日期: {today.strftime('%Y-%m-%d')}")
+            return False
+
+        # 策略2：如果日历未打开，尝试候选文案点击
+        if not calendar_opened:
+            print("🔄 策略2：日历未打开，尝试候选文案点击...")
+            for label in candidates:
+                if label in visible_texts:
+                    try:
+                        el = driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR,
+                            f'new UiSelector().text("{label}")')
+                        el.click()
+                        print(f"✅ 策略2成功：已选择目标日期: {label}")
+                        wait_step(driver, 1)
+                        return True
+                    except Exception as e:
+
+                        print(f"⚠️ 文案存在但点击失败: {label}, {e}")
+        
+        print(f"❌ 所有策略失败，无法选择日期: {depart_date}")
+        return False
+
+    except Exception as e:
+
+
+        print(f"❌ 日期选择流程异常: {e}")
+        return False
+
+
+def step5_click_search(driver):
+    """步骤5: 点击查询按钮（带页面刷新）"""
+    print("\n🔍 步骤5: 点击查询按钮")
+    
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        print(f"🔄 尝试 {attempt}/{max_attempts}")
+        
+        try:
+            # 点击查询按钮
+            search_button = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
+                                              'new UiSelector().text("查询")')
+            search_button.click()
+            print("✅ 查询按钮已点击")
+            
+            wait_step(driver)
+            return True
+            
+        except NoSuchElementException:
+
+            print(f"⚠️ 第{attempt}次尝试：查询按钮未找到")
+            
+            if attempt < max_attempts:
+                print("🔄 刷新当前页面...")
+                try:
+                    # 刷新页面
+                    driver.refresh()
+                    print("✅ 页面已刷新")
+                    wait_step(driver, 2)  # 等待2秒让页面加载
+                except Exception as e:
+
+                    print(f"⚠️ 页面刷新失败: {e}")
+                    # 尝试其他刷新方法
+                    try:
+                        driver.back()
+                        wait_step(driver, 1)
+                        driver.forward()
+                        print("✅ 使用前进后退刷新页面")
+                    except Exception as e2:
+
+                        print(f"⚠️ 前进后退刷新也失败: {e2}")
+            else:
+                print("❌ 3次尝试后仍未找到查询按钮")
+                return False
+                
+        except Exception as e:
+
+
+            print(f"❌ 第{attempt}次尝试失败: {e}")
+            if attempt >= max_attempts:
+                return False
+            wait_step(driver, 2)
+    
+    return False
+
+
+def step6_check_flight_list(driver):
+    """步骤6: 检查航班列表页面并设置价格排序"""
+    print("\n📋 步骤6: 检查航班列表页面")
+    
+    try:
+        # 检查航班列表页面
+        flight_list = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
+                                        'new UiSelector().text("航班列表")')
+        print("✅ 航班列表页面已找到")
+        
+        # 点击价格排序按钮
+        print("🔄 设置价格排序（从低到高）...")
+        try:
+            price_button = driver.find_element(AppiumBy.ANDROID_UIAUTOMATOR, 
+                                             'new UiSelector().text("价格")')
+            price_button.click()
+            print("✅ 价格排序按钮已点击")
+            time.sleep(2)
+            
+            # 检查是否切换为"价格 低-高"
+            try:
+                price_sorted = driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                                 'new UiSelector().text("价格 低-高")')
+                print("✅ 价格排序已设置为从低到高")
+            except BaseException:
+
+                print("⚠️ 价格排序状态未确认，继续执行")
+                
+        except Exception as e:
+
+
+            print(f"⚠️ 价格排序设置失败: {e}，继续执行")
+        
+        # 航司筛选步骤
+        print("🔄 执行航司筛选...")
+        airline_not_found_warning = None
+        try:
+            airline = os.getenv('SCRAPER_AIRLINE', '深圳航空')
+            if airline and airline != '全部':
+                print(f"🎯 筛选航空公司: {airline}")
+                
+                # 点击筛选按钮
+                try:
+                    filter_button = driver.find_element(
+                        AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("筛选")')
+                    filter_button.click()
+                    print("✅ 筛选按钮已点击")
+                    time.sleep(2)
+                    
+                    # 在筛选浮层中选择目标航空公司
+                    try:
+                        airline_element = driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{airline}")')
+                        airline_element.click()
+                        print(f"✅ 已选择航空公司: {airline}")
+                        time.sleep(1)
+                        
+                        # 点击确认按钮
+                        try:
+                            confirm_button = driver.find_element(
+                                AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("确认")')
+                            confirm_button.click()
+                            print("✅ 筛选确认已点击")
+                            time.sleep(2)
+                        except BaseException:
+
+                            print("⚠️ 筛选确认按钮未找到，尝试其他确认方式")
+                            # 尝试点击空白区域关闭筛选浮层
+                            driver.tap([(500, 800)], 100)
+                            time.sleep(1)
+                            
+                    except NoSuchElementException:
+
+
+                        # 指定的航空公司在筛选菜单中未找到
+                        airline_not_found_warning = f"⚠️ 指定的航空公司 '{airline}' 在筛选菜单中未找到，将返回全量结果。请更换日期或指定其他航空公司。"
+                        tprint(airline_not_found_warning)
+                        
+                        # 关闭筛选浮层
+                        try:
+                            # 尝试点击取消或返回按钮
+                            try:
+                                cancel_button = driver.find_element(
+                                    AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("取消")')
+                                cancel_button.click()
+                                print("✅ 已点击取消按钮关闭筛选浮层")
+                                time.sleep(1)
+                            except BaseException:
+
+                                # 尝试点击返回按钮
+                                try:
+                                    back_button = driver.find_element(
+                                        AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("返回")')
+                                    back_button.click()
+                                    print("✅ 已点击返回按钮关闭筛选浮层")
+                                    time.sleep(1)
+                                except BaseException:
+
+                                    # 最后尝试点击空白区域关闭筛选浮层
+                                    driver.tap([(500, 800)], 100)
+                                    print("✅ 已通过点击空白区域关闭筛选浮层")
+                                    time.sleep(1)
+                        except Exception as close_error:
+
+
+                            print(f"⚠️ 关闭筛选浮层时出错: {close_error}，尝试点击空白区域")
+                            driver.tap([(500, 800)], 100)
+                            time.sleep(1)
+                        
+                    except Exception as e:
+
+
+                        print(f"⚠️ 选择航空公司失败: {e}")
+                        
+                except Exception as e:
+
+
+                    print(f"⚠️ 筛选按钮未找到: {e}")
+            else:
+                print("ℹ️ 未指定航空公司或选择全部，跳过航司筛选")
+                
+        except Exception as e:
+
+
+            print(f"⚠️ 航司筛选步骤失败: {e}，继续执行")
+        
+        # 如果指定的航空公司未找到，尝试更新任务记录的notes字段
+        if airline_not_found_warning:
+            try:
+                task_id = os.getenv('TASK_ID')
+                if task_id:
+                    api_base_url = os.getenv(
+                        'API_BASE_URL', 'http://localhost:8000')
+                    import requests
+                    try:
+                        # 尝试更新任务记录的notes字段
+                        response = requests.put(
+                            f"{api_base_url}/api/tasks/{task_id}/notes",
+                            json={"notes": airline_not_found_warning},
+                            timeout=5
+                        )
+                        if response.status_code == 200:
+                            print("✅ 已将航空公司未找到的警告信息保存到任务记录")
+                        else:
+                            print(
+                                f"⚠️ 更新任务记录notes字段失败: {response.status_code}")
+                    except Exception as api_error:
+
+                        print(f"⚠️ 更新任务记录notes字段时出错: {api_error}")
+            except Exception as update_error:
+
+
+                print(f"⚠️ 尝试更新任务记录时出错: {update_error}")
+        
+        wait_step(driver)
+        return True
+        
+    except NoSuchElementException:
+
+
+        print("❌ 航班列表页面未找到")
+        return False
+    except Exception as e:
+
+
+        print(f"❌ 检查航班列表失败: {e}")
+        return False
+
+
+def navigate_and_search(driver, from_city, to_city, depart_date):
+    """根据输入进行完整的导航和查询流程"""
+    print(
+        f"\n🔍 navigate_and_search 接收参数: 出发城市={from_city}, 到达城市={to_city}, 出发日期={depart_date}")
+    # 首先启动12306应用
+    if not launch_12306_app(driver):
+        print("❌ 无法启动12306应用，退出")
+        return False
+
+    # 执行完整的抓取步骤
+    steps = [
+        lambda: step2_check_homepage(driver),
+        lambda: step3_click_air_rail_transfer(driver),
+        lambda: step4_check_air_rail_page(driver),
+        lambda: step4a_select_from_city(driver, from_city),  # 新增：选择出发城市
+        lambda: step4b_select_to_city(driver, to_city),      # 新增：选择到达城市
+        lambda: step4c_select_date(driver, depart_date),
+        lambda: step5_click_search(driver),
+        lambda: step6_check_flight_list(driver)
+    ]
+    
+    for i, step in enumerate(steps, 2):
+        if not step():
+            print(f"❌ 步骤{i}失败，抓取流程中断")
+            return False
+    
+    print("✅ 所有导航步骤完成")
+    return True
+
+
+# ==================== 城市选择功能 ====================
+
+def get_city_pinyin_initials(city_name):
+    """
+    获取城市名称所有汉字的拼音首字母组合
+    例如：北京->BJ，上海->SH，乌鲁木齐->WLMQ
+    """
+    # 完整的城市拼音首字母映射（每个汉字的首字母组合）
+    city_pinyin_map = {
+        # 一线城市
+        '北京': 'BJ', '上海': 'SH', '广州': 'GZ', '深圳': 'SZ',
+        # 新一线城市
+        '成都': 'CD', '杭州': 'HZ', '南京': 'NJ', '武汉': 'WH',
+        '西安': 'XA', '重庆': 'CQ', '天津': 'TJ', '苏州': 'SZ',
+        '长沙': 'CS', '郑州': 'ZZ', '青岛': 'QD', '大连': 'DL',
+        '厦门': 'XM', '福州': 'FZ', '济南': 'JN', '昆明': 'KM',
+        '沈阳': 'SY', '哈尔滨': 'HEB', '石家庄': 'SJZ', '南昌': 'NC',
+        '合肥': 'HF', '太原': 'TY', '长春': 'CC', '贵阳': 'GY',
+        '乌鲁木齐': 'WLMQ', '兰州': 'LZ', '银川': 'YC', '西宁': 'XN',
+        '呼和浩特': 'HHHT', '拉萨': 'LS', '海口': 'HK', '三亚': 'SY',
+        # 其他常见城市
+        '珠海': 'ZH', '中山': 'ZS', '东莞': 'DG', '佛山': 'FS',
+        '无锡': 'WX', '常州': 'CZ', '南通': 'NT', '温州': 'WZ',
+        '台州': 'TZ', '嘉兴': 'JX', '绍兴': 'SX', '金华': 'JH',
+        '湖州': 'HZ', '舟山': 'ZS', '丽水': 'LS', '衢州': 'QZ',
+        '宁波': 'NB', '扬州': 'YZ', '泰州': 'TZ', '镇江': 'ZJ',
+        '盐城': 'YC', '淮安': 'HA', '宿迁': 'SQ', '连云港': 'LYG',
+        '徐州': 'XZ', '宿州': 'SZ', '蚌埠': 'BB', '淮南': 'HN',
+        '滁州': 'CZ', '六安': 'LA', '马鞍山': 'MAS', '芜湖': 'WH',
+        '宣城': 'XC', '铜陵': 'TL', '池州': 'CZ', '安庆': 'AQ',
+        '黄山': 'HS', '阜阳': 'FY', '亳州': 'BZ', '淮北': 'HB',
+        # 更多城市
+        '大同': 'DT', '包头': 'BT', '鄂尔多斯': 'EEDS', '赤峰': 'CF',
+        '通辽': 'TL', '呼伦贝尔': 'HLBE', '巴彦淖尔': 'BYNE',
+        '秦皇岛': 'QHD', '唐山': 'TS', '保定': 'BD', '廊坊': 'LF',
+        '邯郸': 'HD', '张家口': 'ZJK', '承德': 'CD', '沧州': 'CZ',
+        '衡水': 'HS', '邢台': 'XT', '吉林': 'JL', '延边': 'YB',
+        '白山': 'BS', '白城': 'BC', '辽源': 'LY', '通化': 'TH',
+        '松原': 'SY', '四平': 'SP', '齐齐哈尔': 'QQHE', '牡丹江': 'MDJ',
+        '佳木斯': 'JMS', '大庆': 'DQ', '鸡西': 'JX', '绥化': 'SH',
+        '鹤岗': 'HG', '双鸭山': 'SYS', '伊春': 'YC', '七台河': 'QTH',
+        '黑河': 'HH', '大兴安岭': 'DXAL', '烟台': 'YT', '威海': 'WH',
+        '潍坊': 'WF', '淄博': 'ZB', '临沂': 'LY', '东营': 'DY',
+        '泰安': 'TA', '济宁': 'JN', '聊城': 'LC', '德州': 'DZ',
+        '滨州': 'BZ', '枣庄': 'ZZ', '日照': 'RZ', '菏泽': 'HZ',
+        '莱芜': 'LW', '洛阳': 'LY', '开封': 'KF', '安阳': 'AY',
+        '新乡': 'XX', '焦作': 'JZ', '许昌': 'XC', '平顶山': 'PDS',
+        '漯河': 'LH', '南阳': 'NY', '信阳': 'XY', '周口': 'ZK',
+        '驻马店': 'ZMD', '商丘': 'SQ', '三门峡': 'SMX', '濮阳': 'PY',
+        '鹤壁': 'HB', '济源': 'JY', '襄阳': 'XY', '宜昌': 'YC',
+        '荆州': 'JZ', '荆门': 'JM', '十堰': 'SY', '黄冈': 'HG',
+        '孝感': 'XG', '咸宁': 'XN', '随州': 'SZ', '恩施': 'ES',
+        '鄂州': 'EZ', '黄石': 'HS', '岳阳': 'YY', '衡阳': 'HY',
+        '株洲': 'ZZ', '常德': 'CD', '郴州': 'CZ', '湘潭': 'XT',
+        '邵阳': 'SY', '娄底': 'LD', '永州': 'YZ', '益阳': 'YY',
+        '怀化': 'HH', '张家界': 'ZJJ', '湘西': 'XX', '惠州': 'HZ',
+        '江门': 'JM', '湛江': 'ZJ', '汕头': 'ST', '肇庆': 'ZQ',
+        '茂名': 'MM', '揭阳': 'JY', '清远': 'QY', '梅州': 'MZ',
+        '韶关': 'SG', '汕尾': 'SW', '河源': 'HY', '阳江': 'YJ',
+        '潮州': 'CZ', '云浮': 'YF', '南宁': 'NN', '桂林': 'GL',
+        '柳州': 'LZ', '北海': 'BH', '玉林': 'YL', '百色': 'BS',
+        '梧州': 'WZ', '钦州': 'QZ', '贵港': 'GG', '河池': 'HC',
+        '崇左': 'CZ', '来宾': 'LB', '贺州': 'HZ', '防城港': 'FCG',
+        '绵阳': 'MY', '宜宾': 'YB', '德阳': 'DY', '泸州': 'LZ',
+        '南充': 'NC', '乐山': 'LS', '自贡': 'ZG', '遂宁': 'SN',
+        '内江': 'NJ', '达州': 'DZ', '眉山': 'MS', '广安': 'GA',
+        '资阳': 'ZY', '攀枝花': 'PZH', '广元': 'GY', '巴中': 'BZ',
+        '雅安': 'YA', '遵义': 'ZY', '六盘水': 'LPS', '安顺': 'AS',
+        '毕节': 'BJ', '铜仁': 'TR', '黔东南': 'QDN', '黔南': 'QN',
+        '黔西南': 'QXN', '曲靖': 'QJ', '玉溪': 'YX', '大理': 'DL',
+        '红河': 'HH', '楚雄': 'CX', '文山': 'WS', '普洱': 'PE',
+        '昭通': 'ZT', '保山': 'BS', '丽江': 'LJ', '临沧': 'LC',
+        '德宏': 'DH', '西双版纳': 'XSBN', '怒江': 'NJ', '迪庆': 'DQ',
+        '咸阳': 'XY', '宝鸡': 'BJ', '渭南': 'WN', '延安': 'YA',
+        '汉中': 'HZ', '榆林': 'YL', '安康': 'AK', '商洛': 'SL',
+        '铜川': 'TC', '天水': 'TS', '白银': 'BY', '平凉': 'PL',
+        '庆阳': 'QY', '定西': 'DX', '陇南': 'LN', '武威': 'WW',
+        '张掖': 'ZY', '酒泉': 'JQ', '嘉峪关': 'JYG', '金昌': 'JC',
+        '临夏': 'LX', '甘南': 'GN', '海东': 'HD', '海北': 'HB',
+        '海南州': 'HNZ', '黄南': 'HN', '果洛': 'GL', '玉树': 'YS',
+        '海西': 'HX', '石嘴山': 'SZS', '吴忠': 'WZ', '固原': 'GY',
+        '中卫': 'ZW', '克拉玛依': 'KLMY', '吐鲁番': 'TLF', '哈密': 'HM',
+        '昌吉': 'CJ', '博尔塔拉': 'BETL', '巴音郭楞': 'BYGL',
+        '阿克苏': 'AKS', '喀什': 'KS', '和田': 'HT', '伊犁': 'YL',
+        '塔城': 'TC', '阿勒泰': 'ALT', '日喀则': 'RKZ', '山南': 'SN',
+        '林芝': 'LZ', '昌都': 'CD', '那曲': 'NQ', '阿里': 'AL',
+    }
+    
+    # 如果城市名在映射中，返回完整拼音首字母
+    if city_name in city_pinyin_map:
+        return city_pinyin_map[city_name]
+    
+    # 如果城市名包含"市"，去掉"市"再查找
+    if city_name.endswith('市'):
+        city_name_no_suffix = city_name[:-1]
+        if city_name_no_suffix in city_pinyin_map:
+            return city_pinyin_map[city_name_no_suffix]
+    
+    # 否则，尝试使用单字拼音首字母映射（组合每个汉字的首字母）
+    char_pinyin = {
+        '北': 'B', '京': 'J', '上': 'S', '海': 'H', '广': 'G', '州': 'Z',
+        '深': 'S', '圳': 'Z', '成': 'C', '都': 'D', '杭': 'H', '南': 'N',
+        '武': 'W', '汉': 'H', '西': 'X', '安': 'A', '重': 'C', '庆': 'Q',
+        '天': 'T', '津': 'J', '苏': 'S', '长': 'C', '沙': 'S', '郑': 'Z',
+        '青': 'Q', '岛': 'D', '大': 'D', '连': 'L', '厦': 'X', '门': 'M',
+        '福': 'F', '济': 'J', '昆': 'K', '明': 'M', '沈': 'S', '阳': 'Y',
+        '哈': 'H', '尔': 'E', '滨': 'B', '石': 'S', '家': 'J', '庄': 'Z',
+        '合': 'H', '肥': 'F', '太': 'T', '原': 'Y', '春': 'C', '贵': 'G',
+        '乌': 'W', '鲁': 'L', '木': 'M', '齐': 'Q', '兰': 'L', '银': 'Y',
+        '川': 'C', '宁': 'N', '呼': 'H', '和': 'H', '浩': 'H', '特': 'T',
+        '拉': 'L', '萨': 'S', '口': 'K', '三': 'S', '亚': 'Y', '珠': 'Z',
+        '中': 'Z', '山': 'S', '东': 'D', '莞': 'G', '佛': 'F', '无': 'W',
+        '锡': 'X', '常': 'C', '通': 'T', '温': 'W', '台': 'T', '嘉': 'J',
+        '兴': 'X', '绍': 'S', '金': 'J', '华': 'H', '湖': 'H', '舟': 'Z',
+        '丽': 'L', '水': 'S', '衢': 'Q', '波': 'B', '扬': 'Y', '泰': 'T',
+        '镇': 'Z', '江': 'J', '盐': 'Y', '城': 'C', '淮': 'H', '宿': 'S',
+        '迁': 'Q', '云': 'Y', '港': 'G', '徐': 'X', '蚌': 'B', '埠': 'B',
+        '滁': 'C', '六': 'L', '马': 'M', '鞍': 'A', '芜': 'W', '宣': 'X',
+        '铜': 'T', '陵': 'L', '池': 'C', '庆': 'Q', '黄': 'H', '阜': 'F',
+        '亳': 'B',
+    }
+    
+    # 尝试组合每个汉字的首字母
+    if city_name:
+        result = ''
+        for char in city_name:
+            if char in char_pinyin:
+                result += char_pinyin[char]
+            elif '\u4e00' <= char <= '\u9fff':
+
+                # 对于未知汉字，使用占位符或跳过
+                result += char[0] if char else ''
+        if result:
+            return result
+    
+    # 最后的兜底方案：返回城市名本身（虽然可能不准确）
+    return city_name if city_name else 'BJ'
+
+
+def find_city_element(driver, city_type='出发', city_name=None):
+    """
+    查找出发城市或到达城市的元素
+
+    优先使用 resource-id、content-desc 或文本标签（如"出发"、"到达"）来识别，
+    而不是依赖相对位置（x坐标）
+    
+    Args:
+        driver: WebDriver实例
+        city_type: '出发' 或 '到达'
+        city_name: 当前显示的城市名称（可选，用于精确定位）
+    
+    Returns:
+        tuple: (WebElement or None, dict or None) - 元素和位置信息
+    """
+    print(f"🔍 查找{city_type}城市元素...")
+    
+    # 首先尝试从页面源码中查找城市元素及其位置
+    try:
+        page_source = driver.page_source
+        root = etree.fromstring(page_source.encode('utf-8'))
+        import re
+
+        # 策略1：优先使用 resource-id 或 content-desc 来识别城市类型
+        # 查找包含"出发"或"到达"标签的父元素，然后在其附近查找城市元素
+        city_label_keywords = {
+            '出发': ['出发', 'from', 'departure', 'depart'],
+            '到达': ['到达', 'to', 'arrival', 'arrive', 'destination']
+        }
+
+        city_elements = []
+        label_keywords = city_label_keywords.get(city_type, [])
+
+        # 查找包含城市类型标签的元素（如"出发"、"到达"）
+        for keyword in label_keywords:
+            # 查找包含标签文本的元素
+            label_xpath = f'.//*[contains(@text, "{keyword}") or contains(@content-desc, "{keyword}") or contains(@resource-id, "{keyword}")]'
+            label_elements = root.xpath(label_xpath)
+
+            for label_elem in label_elements:
+                label_bounds = label_elem.get('bounds', '')
+                if not label_bounds:
+                    continue
+
+                try:
+                    match = re.search(
+                        r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', label_bounds)
+                    if match:
+                        label_x1, label_y1, label_x2, label_y2 = map(
+                            int, match.groups())
+                        label_center_x = (label_x1 + label_x2) // 2
+                        label_center_y = (label_y1 + label_y2) // 2
+
+                        # 在标签附近查找城市元素（同一行或下方）
+                        # 查找所有城市文本元素
+                        all_text_elements = root.xpath('.//*[@text]')
+                        for city_elem in all_text_elements:
+                            city_text = city_elem.get('text', '').strip()
+                            city_bounds = city_elem.get('bounds', '')
+
+                            # 城市名通常是2-4个中文字符
+                            if city_text and 2 <= len(city_text) <= 4 and all(
+                                    '\u4e00' <= c <= '\u9fff' for c in city_text):
+                                if city_bounds:
+                                    try:
+                                        match = re.search(
+                                            r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', city_bounds)
+                                        if match:
+                                            city_x1, city_y1, city_x2, city_y2 = map(
+                                                int, match.groups())
+                                            city_center_x = (
+                                                city_x1 + city_x2) // 2
+                                            city_center_y = (
+                                                city_y1 + city_y2) // 2
+
+                                            # 检查城市元素是否在标签附近（同一行，y坐标相近，x坐标在标签右侧）
+                                            if abs(
+                                                    city_center_y - label_center_y) < 100 and city_center_x > label_center_x - 50:
+                                                city_elements.append({
+                                                    'text': city_text,
+                                                    'bounds': city_bounds,
+                                                    'center': (city_center_x, city_center_y),
+                                                    'element': city_elem,
+                                                    'label': keyword,
+                                                    'label_center': (label_center_x, label_center_y)
+                                                })
+                                                print(
+                                                    f"✅ 通过标签'{keyword}'找到{city_type}城市元素: {city_text}, 位置: {city_bounds}")
+                                    except BaseException:
+
+                                        pass
+                                    except BaseException:
+
+                    pass
+
+        # 策略2：如果策略1失败，尝试通过 resource-id 或 content-desc 直接查找
+        if not city_elements:
+            for keyword in label_keywords:
+                # 查找 resource-id 或 content-desc 包含关键词的可点击元素
+                xpath_query = f'.//*[contains(@resource-id, "{keyword}") or contains(@content-desc, "{keyword}")]'
+                elements = root.xpath(xpath_query)
+
+                for elem in elements:
+                    bounds = elem.get('bounds', '')
+                    resource_id = elem.get('resource-id', '')
+                    content_desc = elem.get('content-desc', '')
+                    text = elem.get('text', '').strip()
+
+                    if bounds:
+                        try:
+                            match = re.search(
+                                r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                            if match:
+                                x1, y1, x2, y2 = map(int, match.groups())
+                                center_x = (x1 + x2) // 2
+                                center_y = (y1 + y2) // 2
+
+                                # 检查是否在城市选择区域
+                                if 400 <= center_y <= 900:
+                                    city_elements.append({
+                                        'text': text or city_name or '城市',
+                                        'bounds': bounds,
+                                        'center': (center_x, center_y),
+                                        'element': elem,
+                                        'resource_id': resource_id,
+                                        'content_desc': content_desc
+                                    })
+                                    print(
+                                        f"✅ 通过resource-id/content-desc找到{city_type}城市元素: resource-id={resource_id}, content-desc={content_desc}, text={text}")
+                        except BaseException:
+
+                            pass
+
+        # 策略3：如果前两种策略都失败，且提供了城市名，尝试查找该城市名
+        if not city_elements and city_name:
+            xpath_query = f'.//android.widget.TextView[@text="{city_name}"]'
+            elements = root.xpath(xpath_query)
+            for elem in elements:
+                bounds = elem.get('bounds', '')
+                if bounds:
+                    try:
+                        match = re.search(
+                            r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                        if match:
+                            x1, y1, x2, y2 = map(int, match.groups())
+                            center_x = (x1 + x2) // 2
+                            center_y = (y1 + y2) // 2
+                            # 检查是否在合理的区域
+                            if 400 <= center_y <= 900:
+                                city_elements.append({
+                                    'text': city_name,
+                                    'bounds': bounds,
+                                    'center': (center_x, center_y),
+                                    'element': elem
+                                })
+                                print(
+                                    f"✅ 找到城市元素: {city_name}, 位置: {bounds}, 中心: ({center_x}, {center_y})")
+                    except BaseException:
+
+                        pass
+
+            # 如果找到多个同名城市元素，优先使用通过标签找到的
+            if len(city_elements) > 1:
+                # 优先选择有标签信息的元素
+                labeled_elements = [e for e in city_elements if 'label' in e]
+                if labeled_elements:
+                    city_elements = labeled_elements
+                    print(f"🔍 优先选择通过标签找到的元素")
+                else:
+                    # 如果没有标签信息，根据city_type筛选（作为最后手段）
+                    print(
+                        f"⚠️ 找到 {
+                            len(city_elements)} 个同名城市元素 '{city_name}'，根据位置筛选（最后手段）")
+                    if city_type == '出发':
+                        city_elements = [
+                            min(city_elements, key=lambda x: x['center'][0])]
+                        print(
+                            f"🔍 筛选后选择出发城市元素: {
+                                city_elements[0]['text']}, x={
+                                city_elements[0]['center'][0]}")
+                    else:
+                        city_elements = [
+                            max(city_elements, key=lambda x: x['center'][0])]
+                        print(
+                            f"🔍 筛选后选择到达城市元素: {
+                                city_elements[0]['text']}, x={
+                                city_elements[0]['center'][0]}")
+
+        # 如果没有找到或未提供城市名，尝试查找所有可能的城市元素
+        if not city_elements:
+            # 扩大搜索范围：查找所有类型的元素（不仅仅是TextView）
+            all_elements = root.xpath('.//*[@text]')
+            screen_size = driver.get_window_size()
+            screen_height = screen_size.get('height', 2400)
+            y_min = 400
+            y_max = min(900, screen_height * 0.4)
+
+            for elem in all_elements:
+                text = elem.get('text', '').strip()
+                bounds = elem.get('bounds', '')
+                # 城市名通常是2-4个中文字符，且在特定位置
+                if text and 2 <= len(text) <= 4 and all(
+                        '\u4e00' <= c <= '\u9fff' for c in text):
+                    try:
+                        match = re.search(
+                            r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                        if match:
+                            x1, y1, x2, y2 = map(int, match.groups())
+                            center_x = (x1 + x2) // 2
+                            center_y = (y1 + y2) // 2
+                            # 检查是否在城市选择区域（扩大范围）
+                            if y_min <= center_y <= y_max and 50 <= center_x <= 1000:
+                                city_elements.append({
+                                    'text': text,
+                                    'bounds': bounds,
+                                    'center': (center_x, center_y),
+                                    'element': elem
+                                })
+                                print(
+                                    f"🔍 找到候选城市元素: {text}, 位置: {bounds}, 中心: ({center_x}, {center_y})")
+                    except BaseException:
+
+                        pass
+
+            # 如果还是没有找到，尝试查找可点击的元素
+            if not city_elements:
+                print(f"⚠️ 未找到城市文本元素，尝试查找可点击的城市选择区域...")
+                clickable_elements = root.xpath('.//*[@clickable="true"]')
+                for elem in clickable_elements:
+                    bounds = elem.get('bounds', '')
+                    resource_id = elem.get('resource-id', '')
+                    content_desc = elem.get('content-desc', '')
+                    text = elem.get('text', '').strip()
+
+                    if bounds:
+                        try:
+                            match = re.search(
+                                r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                            if match:
+                                x1, y1, x2, y2 = map(int, match.groups())
+                                center_x = (x1 + x2) // 2
+                                center_y = (y1 + y2) // 2
+                                # 检查是否在城市选择区域
+                                if y_min <= center_y <= y_max and 50 <= center_x <= 1000:
+                                    # 检查resource-id或content-desc是否包含城市相关关键词
+                                    city_keywords = [
+                                        'city', '城市', '出发', '到达', 'from', 'to']
+                                    if any(
+                                        keyword in (
+                                            resource_id +
+                                            content_desc +
+                                            text).lower() for keyword in city_keywords):
+                                        print(
+                                            f"🔍 找到可点击的城市选择元素: resource-id={resource_id}, content-desc={content_desc}, text={text}, 位置: {bounds}")
+                                        # 尝试通过坐标点击
+                                        city_elements.append({
+                                            'text': text or '城市',
+                                            'bounds': bounds,
+                                            'center': (center_x, center_y),
+                                            'element': elem
+                                        })
+                        except BaseException:
+
+                            pass
+        
+        # 优先使用通过标签找到的元素，如果没有则使用其他方法
+            # 优先选择通过标签找到的元素
+            labeled_elements = [e for e in city_elements if 'label' in e]
+            if labeled_elements:
+                # 如果有多个标签元素，选择与city_type匹配的
+                city_info = labeled_elements[0]
+                print(
+                    f"✅ 通过标签找到{city_type}城市元素: {
+                        city_info['text']}, 位置: {
+                        city_info['bounds']}")
+            else:
+                # 如果没有标签元素，根据city_type选择（作为最后手段）
+            if city_type == '出发':
+                    # 出发城市在左侧：选择x坐标最小的元素
+                city_info = min(city_elements, key=lambda x: x['center'][0])
+                    print(
+                if city_type == '出发':
+            else:  # 到达
+                    # 到达城市在右侧：选择x坐标最大的元素
+                city_info = max(city_elements, key=lambda x: x['center'][0])
+                    print(
+                        f"⚠️ 使用位置筛选（最后手段）找到{city_type}城市元素: {city_info['text']}, 位置: {city_info['bounds']}, x坐标: {city_info['center'][0]}")
+                else:  # 到达
+                        f"⚠️ 使用位置筛选（最后手段）找到{city_type}城市元素: {city_info['text']}, 位置: {city_info['bounds']}, x坐标: {city_info['center'][0]}")
+            
+            # 尝试通过文本定位元素
+            try:
+                element = driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                            f'new UiSelector().text("{city_info["text"]}")')
+                return element, city_info
+            except BaseException:
+
+                # 如果无法通过文本定位，返回位置信息用于坐标点击
+                print(f"⚠️ 无法通过文本定位元素，将使用坐标点击: {city_info['center']}")
+                return None, city_info
+        
+    except Exception as e:
+
+
+        print(f"⚠️ 从页面源码查找失败: {e}")
+    
+    # 备用方案：尝试通过UiSelector查找
+    try:
+        elements = driver.find_elements(
+            AppiumBy.ANDROID_UIAUTOMATOR,
+                                      'new UiSelector().className("android.widget.TextView")')
+        for element in elements:
+            try:
+                text = element.text
+                if text and 2 <= len(text) <= 4 and all(
+                        '\u4e00' <= c <= '\u9fff' for c in text):
+                    location = element.location
+                    size = element.size
+                    center_y = location['y'] + size['height'] // 2
+                    if 500 <= center_y <= 800:
+                        print(f"✅ 通过UiSelector找到城市元素: {text}")
+                        return element, None
+            except BaseException:
+
+                continue
+    except Exception as e:
+
+
+        print(f"⚠️ 通过UiSelector查找失败: {e}")
+    
+    print(f"❌ 未找到{city_type}城市元素")
+    return None, None
+
+
+def click_city_and_enter_selection(driver, city_type='出发', current_city=None):
+    """
+    点击城市元素，进入城市选择页面
+    
+    Args:
+        driver: WebDriver实例
+        city_type: '出发' 或 '到达'
+        current_city: 当前显示的城市名称（可选）
+    
+    Returns:
+        bool: 是否成功进入城市选择页面
+    """
+    print(f"\n📍 步骤: 点击{city_type}城市，进入城市选择页面")
+    
+    city_element, city_info = find_city_element(
+        driver, city_type, current_city)
+    
+    try:
+        if city_element:
+            try:
+                city_element.click()
+                print(f"✅ 已点击{city_type}城市元素")
+            except Exception as e:
+
+                print(f"⚠️ 点击元素失败: {e}，尝试坐标点击")
+                if city_info and 'center' in city_info:
+                    center_x, center_y = city_info['center']
+                    driver.tap([(center_x, center_y)], 100)
+                    print(f"✅ 已通过坐标点击{city_type}城市: ({center_x}, {center_y})")
+                else:
+                    raise
+        elif city_info and 'center' in city_info:
+
+            center_x, center_y = city_info['center']
+            driver.tap([(center_x, center_y)], 100)
+            print(f"✅ 已通过坐标点击{city_type}城市: ({center_x}, {center_y})")
+        else:
+            print(f"❌ 未找到{city_type}城市元素或位置信息")
+            return False
+        
+        wait_step(driver, 2)
+        
+        # 检查是否进入城市选择页面
+        try:
+            search_indicators = ['搜索', '请输入', '城市', 'Search']
+            found = False
+            for indicator in search_indicators:
+                try:
+                    search_element = driver.find_element(
+                        AppiumBy.ANDROID_UIAUTOMATOR,
+                                                       f'new UiSelector().textContains("{indicator}")')
+                    if search_element:
+                        print(f"✅ 已进入城市选择页面（找到搜索指示器: {indicator}）")
+                        found = True
+                        break
+                except BaseException:
+
+                    continue
+            
+            if not found:
+                try:
+                    edit_texts = driver.find_elements(
+                        AppiumBy.CLASS_NAME, "android.widget.EditText")
+                    if edit_texts:
+                        print(f"✅ 已进入城市选择页面（找到 {len(edit_texts)} 个EditText元素）")
+                        found = True
+                except BaseException:
+
+                    pass
+            
+            if not found:
+                print("⚠️ 未明确检测到城市选择页面，但继续执行...")
+            
+            return True
+            
+        except Exception as e:
+
+
+            print(f"⚠️ 检查城市选择页面时出错: {e}")
+            return True
+            
+    except Exception as e:
+
+
+        print(f"❌ 点击{city_type}城市失败: {e}")
+        return False
+
+
+def find_city_search_box(driver):
+    """查找城市选择页面的搜索框"""
+    print("🔍 查找搜索框...")
+    
+    try:
+        edit_texts = driver.find_elements(
+            AppiumBy.CLASS_NAME, "android.widget.EditText")
+        if edit_texts:
+            search_box = edit_texts[0]
+            print("✅ 找到搜索框（EditText）")
+            return search_box
+    except Exception as e:
+
+        print(f"⚠️ 查找EditText失败: {e}")
+    
+    try:
+        for text in ['搜索', '请输入', 'Search', '城市']:
+            try:
+                element = driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                           f'new UiSelector().textContains("{text}")')
+                if element.tag_name == 'android.widget.EditText' or 'EditText' in str(
+                        element):
+                    print(f"✅ 找到搜索框（通过文本: {text}）")
+                    return element
+            except BaseException:
+
+                continue
+    except Exception as e:
+
+
+        print(f"⚠️ 通过文本查找搜索框失败: {e}")
+    
+    print("❌ 未找到搜索框")
+    return None
+
+
+def input_city_search(driver, city_name):
+    """在搜索框中输入城市名称的拼音首字母（每个汉字的首字母组合）"""
+    print(f"\n⌨️ 步骤: 在搜索框输入城市 '{city_name}' 的拼音首字母")
+    
+    pinyin_initials = get_city_pinyin_initials(city_name)
+    print(f"📝 城市 '{city_name}' 的拼音首字母: {pinyin_initials}")
+    
+    search_box = find_city_search_box(driver)
+    if not search_box:
+        print("❌ 未找到搜索框")
+        return False
+    
+    try:
+        try:
+            search_box.clear()
+        except BaseException:
+
+            pass
+        
+        search_box.send_keys(pinyin_initials)
+        print(f"✅ 已输入拼音首字母: {pinyin_initials}")
+        wait_step(driver, 2)
+        return True
+        
+    except Exception as e:
+
+
+        print(f"❌ 输入搜索内容失败: {e}")
+        return False
+
+
+def select_city_from_results(driver, city_name):
+    """从搜索结果中选择目标城市
+
+    优先选择：
+    1. 精确匹配的城市名称
+    2. 包含城市名称但不包含"站"、"机场"等后缀的城市
+    3. 带有"城市"标签的城市
+    4. 其他包含城市名称的结果
+    """
+    print(f"\n🎯 步骤: 从搜索结果中选择城市 '{city_name}'")
+    
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # 策略1：精确匹配
+            try:
+                city_element = driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                                                  f'new UiSelector().text("{city_name}")')
+                city_element.click()
+                print(f"✅ 成功选择城市: {city_name}")
+                wait_step(driver, 2)
+                return True
+            except NoSuchElementException:
+
+                pass
+            
+            # 策略2：从页面源码中查找所有包含城市名称的元素，优先选择不包含后缀的
+            try:
+                page_source = driver.page_source
+                root = etree.fromstring(page_source.encode('utf-8'))
+                xpath_query = f'.//*[contains(@text, "{city_name}")]'
+                elements = root.xpath(xpath_query)
+                
+                # 收集所有候选城市
+                candidates = []
+                for elem in elements:
+                    text = elem.get('text', '').strip()
+                    if city_name in text:
+                        # 检查是否包含"城市"标签（优先）
+                        has_city_label = '城市' in text or 'city' in text.lower()
+                        # 检查是否包含后缀（不优先）
+                        has_suffix = any(
+                            suffix in text for suffix in [
+                                '站', '机场', '火车站', '机场站', 'Station', 'Airport'])
+                        # 检查是否是精确匹配（最优先）
+                        is_exact = text == city_name
+
+                        candidates.append({
+                            'text': text,
+                            'element': elem,
+                            'is_exact': is_exact,
+                            'has_city_label': has_city_label,
+                            'has_suffix': has_suffix,
+                            # 优先级：精确匹配 > 有城市标签 > 无后缀
+                            'priority': (is_exact, has_city_label, not has_suffix)
+                        })
+
+                # 按优先级排序：精确匹配 > 有城市标签 > 无后缀
+                candidates.sort(
+                    key=lambda x: (
+                        x['priority'][0],
+                        x['priority'][1],
+                        x['priority'][2]),
+                    reverse=True)
+
+                # 尝试选择优先级最高的候选城市
+                for candidate in candidates:
+                    try:
+                        city_element = driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR, f'new UiSelector().text("{candidate["text"]}")')
+                            city_element.click()
+                        reason = []
+                        city_element.click()
+                            reason.append('精确匹配')
+                        city_element.click()
+                            reason.append('带城市标签')
+                        if not candidate['has_suffix']:
+                            reason.append('无后缀')
+                        print(
+                            f"✅ 成功选择城市（通过页面源码，{'、'.join(reason)}）: {candidate['text']}")
+                            wait_step(driver, 2)
+                            return True
+                        wait_step(driver, 2)
+                        return True
+                        wait_step(driver, 2)
+                        return True
+            
+                            continue
+            try:
+                city_element = driver.find_element(
+                    AppiumBy.ANDROID_UIAUTOMATOR,
+                    f'new UiSelector().textContains("{city_name}")')
+                city_element.click()
+                print(f"✅ 成功选择城市（通过textContains）: {city_name}")
+                wait_step(driver, 2)
+                return True
+            except NoSuchElementException:
+
+                pass
+            
+            if attempt < max_attempts:
+                print(f"⚠️ 第{attempt}次尝试未找到城市，尝试滚动...")
+                try:
+                    screen_size = driver.get_window_size()
+                    driver.swipe(screen_size['width'] // 2, 
+                               screen_size['height'] * 0.7,
+                               screen_size['width'] // 2,
+                               screen_size['height'] * 0.3,
+                               500)
+                    wait_step(driver, 1)
+                except BaseException:
+
+                    pass
+            else:
+                print(f"❌ 尝试{max_attempts}次后仍未找到城市: {city_name}")
+                return False
+                
+        except Exception as e:
+
+
+            print(f"❌ 选择城市时出错: {e}")
+            if attempt >= max_attempts:
+                return False
+            wait_step(driver, 1)
+    
+    return False
+
+
+def get_current_page_settings(driver):
+    """
+    获取当前空铁联运页面显示的出发城市、到达城市和日期
+    
+    Returns:
+        dict: {'from_city': str, 'to_city': str, 'date': str}
+    """
+    print("\n🔍 检查当前页面显示的城市和日期...")
+    
+    result = {'from_city': None, 'to_city': None, 'date': None}
+    
+    try:
+        page_source = driver.page_source
+        root = etree.fromstring(page_source.encode('utf-8'))
+        import re
+        
+        # 扩大搜索范围：查找所有可能的元素类型（TextView, EditText, Button等）
+        all_elements = root.xpath('.//*[@text]')
+        city_elements = []
+        
+        screen_size = driver.get_window_size()
+        screen_height = screen_size.get('height', 2400)
+
+        # 扩大y坐标范围：从400到900（原来500-800可能太严格）
+        y_min = 400
+        y_max = min(900, screen_height * 0.4)
+
+        for elem in all_elements:
+            text = elem.get('text', '').strip()
+            bounds = elem.get('bounds', '')
+            
+            if not text or not bounds:
+                continue
+                
+            try:
+                match = re.search(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                if match:
+                    x1, y1, x2, y2 = map(int, match.groups())
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    
+                    # 城市元素：2-4个中文字符，y坐标在扩大后的范围内
+                    if 2 <= len(text) <= 4 and all(
+                            '\u4e00' <= c <= '\u9fff' for c in text):
+                        if y_min <= center_y <= y_max and 50 <= center_x <= 1000:
+                            city_elements.append({
+                                'text': text,
+                                'center_x': center_x,
+                                'center_y': center_y,
+                                'bounds': bounds
+                            })
+                            print(
+                                f"🔍 找到候选城市元素: {text}, 位置: {bounds}, 中心: ({center_x}, {center_y})")
+                    
+                    # 日期元素：包含"月"和"日"
+                    if '月' in text and '日' in text:
+                        result['date'] = text
+                        print(f"📅 当前日期: {text}")
+            except BaseException:
+
+                pass
+
+        # 优先使用标签（"出发"、"到达"）来区分城市，而不是依赖x坐标
+        # 策略1：查找包含"出发"或"到达"标签的元素，然后在其附近查找城市
+        city_label_keywords = {
+            'from': ['出发', 'from', 'departure', 'depart'],
+            'to': ['到达', 'to', 'arrival', 'arrive', 'destination']
+        }
+
+        from_city_elem = None
+        to_city_elem = None
+
+        # 查找"出发"标签附近的城市
+        for keyword in city_label_keywords['from']:
+            label_xpath = f'.//*[contains(@text, "{keyword}") or contains(@content-desc, "{keyword}") or contains(@resource-id, "{keyword}")]'
+            label_elements = root.xpath(label_xpath)
+            for label_elem in label_elements:
+                label_bounds = label_elem.get('bounds', '')
+                if not label_bounds:
+                    continue
+                try:
+                    match = re.search(
+                        r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', label_bounds)
+                    if match:
+                        label_x1, label_y1, label_x2, label_y2 = map(
+                            int, match.groups())
+                        label_center_x = (label_x1 + label_x2) // 2
+                        label_center_y = (label_y1 + label_y2) // 2
+
+                        # 在标签附近查找城市元素
+                        for city_elem in city_elements:
+                            city_center_x = city_elem['center_x']
+                            city_center_y = city_elem['center_y']
+                            # 检查城市元素是否在标签附近（同一行，y坐标相近，x坐标在标签右侧）
+                            if abs(
+                                    city_center_y - label_center_y) < 100 and city_center_x > label_center_x - 50:
+                                from_city_elem = city_elem
+                                print(f"✅ 通过'出发'标签找到出发城市: {city_elem['text']}")
+                                break
+                        if from_city_elem:
+                            break
+                except BaseException:
+
+                    pass
+            if from_city_elem:
+                break
+
+        # 查找"到达"标签附近的城市
+        for keyword in city_label_keywords['to']:
+            label_xpath = f'.//*[contains(@text, "{keyword}") or contains(@content-desc, "{keyword}") or contains(@resource-id, "{keyword}")]'
+            label_elements = root.xpath(label_xpath)
+            for label_elem in label_elements:
+                label_bounds = label_elem.get('bounds', '')
+                if not label_bounds:
+                    continue
+                try:
+                    match = re.search(
+                        r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', label_bounds)
+                    if match:
+                        label_x1, label_y1, label_x2, label_y2 = map(
+                            int, match.groups())
+                        label_center_x = (label_x1 + label_x2) // 2
+                        label_center_y = (label_y1 + label_y2) // 2
+
+                        # 在标签附近查找城市元素
+                        for city_elem in city_elements:
+                            city_center_x = city_elem['center_x']
+                            city_center_y = city_elem['center_y']
+                            # 检查城市元素是否在标签附近（同一行，y坐标相近，x坐标在标签右侧）
+                            if abs(
+                                    city_center_y - label_center_y) < 100 and city_center_x > label_center_x - 50:
+                                to_city_elem = city_elem
+                                print(f"✅ 通过'到达'标签找到到达城市: {city_elem['text']}")
+                                break
+                        if to_city_elem:
+                            break
+                except BaseException:
+
+                    pass
+            if to_city_elem:
+                break
+
+        # 如果通过标签找到了城市，使用标签结果
+        if from_city_elem:
+            result['from_city'] = from_city_elem['text']
+            print(f"🏙️ 当前出发城市: {result['from_city']}")
+        if to_city_elem:
+            result['to_city'] = to_city_elem['text']
+            print(f"🏙️ 当前到达城市: {result['to_city']}")
+
+        # 策略2：如果标签方法失败，使用x坐标作为最后手段
+        if not from_city_elem or not to_city_elem:
+        if city_elements:
+                # 按x坐标排序（从小到大）
+            city_elements.sort(key=lambda x: x['center_x'])
+                print(f"📊 找到 {len(city_elements)} 个候选城市元素")
+                city_elements.sort(key=lambda x: x['center_x'])
+                # 左侧的是出发城市（x坐标最小）
+                city_elements.sort(key=lambda x: x['center_x'])
+                result['from_city'] = city_elements[0]['text']
+                    print(f"⚠️ 使用位置筛选（最后手段）识别出发城市: {result['from_city']}")
+            
+                # 右侧的是到达城市（x坐标最大）
+                if not to_city_elem and len(city_elements) >= 2:
+                result['to_city'] = city_elements[-1]['text']
+                    print(f"⚠️ 使用位置筛选（最后手段）识别到达城市: {result['to_city']}")
+        else:
+            print(f"⚠️ 未找到城市元素，尝试查找可点击的元素...")
+            # 备用方案：查找可点击的元素
+            clickable_elements = root.xpath(
+                './/*[@clickable="true" and @text]')
+            for elem in clickable_elements:
+                text = elem.get('text', '').strip()
+                bounds = elem.get('bounds', '')
+                if text and bounds:
+                    try:
+                        match = re.search(
+                            r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', bounds)
+                        if match:
+                            x1, y1, x2, y2 = map(int, match.groups())
+                            center_x = (x1 + x2) // 2
+                            center_y = (y1 + y2) // 2
+                            if y_min <= center_y <= y_max and 50 <= center_x <= 1000:
+                                print(f"🔍 找到可点击元素: {text}, 位置: {bounds}")
+                    except BaseException:
+
+                        pass
+        
+    except Exception as e:
+
+
+        print(f"⚠️ 获取当前页面设置失败: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return result
+
+
+def step4a_select_from_city(driver, from_city, max_retries=2):
+    """
+    步骤4A: 选择出发城市（仅在需要时修改）
+    
+    Args:
+        driver: WebDriver实例
+        from_city: 目标出发城市名称
+    
+    Returns:
+        bool: 是否成功
+    """
+    if not from_city:
+        print("ℹ️ 未提供出发城市，跳过选择")
+        return True
+    
+    print(f"\n🏙️ 步骤4A: 检查出发城市 (目标: {from_city}, 最大重试: {max_retries})")
+
+    # 防止死循环：如果已经重试过，直接返回失败
+    if max_retries <= 0:
+        print(f"⚠️ 已达到最大重试次数，停止修改出发城市，避免死循环")
+        return False
+    
+    # 获取当前页面显示的出发城市
+    current_settings = get_current_page_settings(driver)
+    current_from_city = current_settings.get('from_city')
+    
+    # 检查是否需要修改
+    if current_from_city == from_city:
+        print(f"✅ 出发城市已是 {from_city}，无需修改")
+        return True
+    
+    print(f"🔄 需要将出发城市从 {current_from_city} 修改为 {from_city}")
+    
+    if not click_city_and_enter_selection(driver, '出发', current_from_city):
+        print("❌ 无法进入城市选择页面")
+        return False
+    
+    if not input_city_search(driver, from_city):
+        print("❌ 无法输入搜索内容")
+        return False
+    
+    if not select_city_from_results(driver, from_city):
+        print("❌ 无法选择城市")
+        return False
+    
+    # 选择城市后，APP会自动返回空铁联运页面，无需手动返回
+    print(f"✅ 出发城市已修改为 {from_city}")
+    wait_step(driver, 3)  # 增加等待时间，确保页面稳定
+
+    # 验证修改后的城市设置（可能需要多次验证，因为APP可能需要时间更新）
+    max_verify_attempts = 3
+    for attempt in range(1, max_verify_attempts + 1):
+        current_settings = get_current_page_settings(driver)
+        final_from_city = current_settings.get('from_city')
+        final_to_city = current_settings.get('to_city')
+        print(
+            f"🔍 验证最终城市设置 (尝试 {attempt}/{max_verify_attempts}): 出发城市={final_from_city}, 到达城市={final_to_city}")
+
+        # 如果出发城市正确，直接返回成功（不检查到达城市，因为可能还未设置）
+        if final_from_city == from_city:
+            print(f"✅ 出发城市设置正确: {final_from_city}")
+    return True
+
+    # 如果还有尝试机会，等待后重试
+    if attempt < max_verify_attempts:
+        wait_step(driver, 1)
+
+    # 如果验证失败，检查是否需要重试
+    print(f"⚠️ 警告：出发城市设置可能不正确。预期: {from_city}, 实际: {final_from_city}")
+
+    # 如果当前城市与目标城市不同，且还有重试机会，尝试重试
+    if final_from_city != from_city and max_retries > 0:
+        print(f"🔄 重试设置出发城市 (剩余重试: {max_retries})...")
+        return step4a_select_from_city(driver, from_city, max_retries - 1)
+
+    return False
+
+
+def step4b_select_to_city(driver, to_city, max_retries=2):
+    """
+    步骤4B: 选择到达城市（仅在需要时修改）
+    
+    Args:
+        driver: WebDriver实例
+        to_city: 目标到达城市名称
+        max_retries: 最大重试次数，防止死循环
+    
+    Returns:
+        bool: 是否成功
+    """
+    if not to_city:
+        print("ℹ️ 未提供到达城市，跳过选择")
+        return True
+    
+    print(f"\n🏙️ 步骤4B: 检查到达城市 (目标: {to_city}, 最大重试: {max_retries})")
+    
+    # 获取当前页面显示的到达城市
+    current_settings = get_current_page_settings(driver)
+    current_to_city = current_settings.get('to_city')
+    
+    # 检查是否需要修改
+    if current_to_city == to_city:
+        print(f"✅ 到达城市已是 {to_city}，无需修改")
+        return True
+    
+    # 防止死循环：如果已经重试过，直接返回失败
+    if max_retries <= 0:
+        print(f"⚠️ 已达到最大重试次数，停止修改到达城市，避免死循环")
+        return False
+    
+    print(f"🔄 需要将到达城市从 {current_to_city} 修改为 {to_city}")
+
+    # 重要：在选择到达城市之前，先验证当前页面状态，确保出发城市没有被误操作
+    pre_settings = get_current_page_settings(driver)
+    pre_from_city = pre_settings.get('from_city')
+    pre_to_city = pre_settings.get('to_city')
+    print(f"🔍 选择到达城市前的页面状态: 出发城市={pre_from_city}, 到达城市={pre_to_city}")
+    
+    if not click_city_and_enter_selection(driver, '到达', current_to_city):
+        print("❌ 无法进入城市选择页面")
+        return False
+    
+    if not input_city_search(driver, to_city):
+        print("❌ 无法输入搜索内容")
+        return False
+    
+    if not select_city_from_results(driver, to_city):
+        print("❌ 无法选择城市")
+        return False
+    
+    # 选择城市后，APP会自动返回空铁联运页面，无需手动返回
+    print(f"✅ 到达城市已修改为 {to_city}")
+    wait_step(driver, 3)  # 增加等待时间，确保页面稳定
+
+    # 验证修改后的城市设置（可能需要多次验证，因为APP可能需要时间更新）
+    max_verify_attempts = 3
+    for attempt in range(1, max_verify_attempts + 1):
+        current_settings = get_current_page_settings(driver)
+        final_from_city = current_settings.get('from_city')
+        final_to_city = current_settings.get('to_city')
+        print(
+            f"🔍 验证最终城市设置 (尝试 {attempt}/{max_verify_attempts}): 出发城市={final_from_city}, 到达城市={final_to_city}")
+
+        # 如果两个城市都正确，直接返回成功
+        if final_from_city == pre_from_city and final_to_city == to_city:
+            print(f"✅ 城市设置正确：出发={final_from_city}, 到达={final_to_city}")
+    return True
+
+    # 如果还有尝试机会，等待后重试
+    if attempt < max_verify_attempts:
+        wait_step(driver, 1)
+
+    # 如果验证失败，尝试修复
+    print(f"⚠️ 城市设置验证失败，尝试修复...")
+
+    # 情况1：出发城市被意外修改，但到达城市正确
+    if final_from_city != pre_from_city and final_to_city == to_city:
+        print(f"⚠️ 警告：出发城市被意外修改！原值: {pre_from_city}, 当前值: {final_from_city}")
+        print(f"🔄 需要重新设置出发城市为: {pre_from_city}")
+        # 重新设置出发城市（传递剩余重试次数，防止死循环）
+        if not step4a_select_from_city(driver, pre_from_city, max_retries=1):
+            print(f"❌ 重新设置出发城市失败")
+            return False
+        # 再次验证
+        wait_step(driver, 2)
+        current_settings = get_current_page_settings(driver)
+        if current_settings.get('from_city') == pre_from_city and current_settings.get(
+                'to_city') == to_city:
+            print(f"✅ 修复成功：出发={pre_from_city}, 到达={to_city}")
+            return True
+
+    # 情况2：到达城市不正确，但出发城市正确
+        elif final_from_city == pre_from_city and final_to_city != to_city:
+
+        print(f"⚠️ 警告：到达城市设置不正确！预期: {to_city}, 实际: {final_to_city}")
+        # 如果到达城市未改变，可能是APP交换了城市，需要重新设置
+        if final_to_city == pre_from_city:
+            print(f"⚠️ 检测到城市可能被交换，重新设置到达城市...")
+            # 重新设置到达城市（传递剩余重试次数，防止死循环）
+            if not step4b_select_to_city(driver, to_city, max_retries=1):
+                print(f"❌ 重新设置到达城市失败")
+                return False
+        else:
+            print(f"⚠️ 到达城市未改变，可能需要重新尝试")
+
+    # 情况3：两个城市都不正确（可能被交换）
+            elif final_from_city != pre_from_city and final_to_city != to_city:
+
+        print(f"⚠️ 警告：两个城市都被修改！可能发生了城市交换")
+        print(f"   原状态: 出发={pre_from_city}, 到达={pre_to_city}")
+        print(f"   当前状态: 出发={final_from_city}, 到达={final_to_city}")
+        print(f"   目标状态: 出发={pre_from_city}, 到达={to_city}")
+
+        # 情况3a：检测到完全交换（出发=原到达，到达=原出发）
+        if final_from_city == pre_to_city and final_to_city == pre_from_city:
+            print(f"🔄 检测到完全城市交换，重新设置两个城市...")
+            # 先设置出发城市（传递剩余重试次数，防止死循环）
+            if not step4a_select_from_city(
+                    driver, pre_from_city, max_retries=1):
+                print(f"❌ 重新设置出发城市失败")
+                return False
+            wait_step(driver, 2)
+            # 再设置到达城市（传递剩余重试次数，防止死循环）
+            if not step4b_select_to_city(driver, to_city, max_retries=1):
+                print(f"❌ 重新设置到达城市失败")
+                return False
+        # 情况3b：选择的到达城市被放到了出发位置（出发=选择的到达城市，到达=原出发城市）
+            elif final_from_city == to_city and final_to_city == pre_from_city:
+
+            print(f"🔄 检测到选择的到达城市被放到了出发位置，重新设置两个城市...")
+            # 先设置出发城市为正确的值（传递剩余重试次数，防止死循环）
+            if not step4a_select_from_city(
+                    driver, pre_from_city, max_retries=1):
+                print(f"❌ 重新设置出发城市失败")
+                return False
+            wait_step(driver, 2)
+            # 再设置到达城市为正确的值（传递剩余重试次数，防止死循环）
+            if not step4b_select_to_city(driver, to_city, max_retries=1):
+                print(f"❌ 重新设置到达城市失败")
+                return False
+        # 情况3c：其他情况，直接重新设置两个城市
+        else:
+            print(f"🔄 检测到城市设置异常，重新设置两个城市...")
+            # 先设置出发城市（传递剩余重试次数，防止死循环）
+            if not step4a_select_from_city(
+                    driver, pre_from_city, max_retries=1):
+                print(f"❌ 重新设置出发城市失败")
+                return False
+            wait_step(driver, 2)
+            # 再设置到达城市（传递剩余重试次数，防止死循环）
+            if not step4b_select_to_city(driver, to_city, max_retries=1):
+                print(f"❌ 重新设置到达城市失败")
+                return False
+
+    # 最终验证
+    wait_step(driver, 2)
+    final_settings = get_current_page_settings(driver)
+    if final_settings.get('from_city') == pre_from_city and final_settings.get(
+            'to_city') == to_city:
+        print(f"✅ 最终验证通过：出发={pre_from_city}, 到达={to_city}")
+        return True
+    else:
+        print(
+            f"⚠️ 最终验证失败：出发={
+                final_settings.get('from_city')}, 到达={
+                final_settings.get('to_city')}")
+        return False

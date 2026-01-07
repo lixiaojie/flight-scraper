@@ -21,7 +21,7 @@ const Dashboard: React.FC = () => {
   const createTask = async () => {
     try {
       setIsCreatingTask(true);
-      const response = await fetch('/api/tasks', {
+      const response = await fetch('/api/tasks/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: '12306', task_type: 'flight_scraper' })

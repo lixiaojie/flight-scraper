@@ -1,0 +1,10 @@
+{
+  "appiumServerUrl": "http://appium:4723",
+  "deviceUdid": "emulator-5554",
+  "androidPlatformVersion": "16",
+  "adbHost": "host.docker.internal",
+  "adbPort": 5037,
+  "remoteAdbHost": "host.docker.internal",
+  "remoteAdbPort": 5037,
+  "outputDir": "/app/results"
+}

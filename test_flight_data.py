@@ -6,9 +6,10 @@
 import requests
 import json
 
+
 def create_test_flight_data():
     """创建测试航班数据"""
-    
+
     # 测试航班数据
     test_flights = [
         {
@@ -54,14 +55,14 @@ def create_test_flight_data():
             "status": "active"
         }
     ]
-    
+
     # 发送到后端API
     api_url = "http://localhost:8000/api/flights/batch-save"
     payload = {
         "flights": test_flights,
         "source": "12306"
     }
-    
+
     try:
         response = requests.post(api_url, json=payload)
         if response.status_code == 200:
@@ -73,6 +74,7 @@ def create_test_flight_data():
             print(response.text)
     except Exception as e:
         print(f"❌ 请求失败: {e}")
+
 
 if __name__ == "__main__":
     create_test_flight_data()

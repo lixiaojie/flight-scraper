@@ -1,0 +1,23 @@
+{
+  "platformName": "Android",
+  "appium:automationName": "UiAutomator2",
+  "appium:udid": "emulator-5554",
+  "appium:deviceName": "Android Emulator",
+  "appium:platformVersion": "16",
+  "appium:noReset": true,
+  "appium:fullReset": false,
+  "appium:autoGrantPermissions": true,
+  "appium:newCommandTimeout": 300,
+  "appium:adbExecTimeout": 120000,
+  "appium:uiautomator2ServerInstallTimeout": 120000,
+  "appium:uiautomator2ServerLaunchTimeout": 120000,
+  "appium:settingsAppInstallTimeout": 120000,
+  "appium:skipServerInstallation": false,
+  "appium:skipUnlock": true,
+  "appium:ensureWebviewsHavePages": true,
+  "appium:nativeWebScreenshot": true,
+  "appium:connectHardwareKeyboard": true,
+  "appium:remoteAdbHost": "host.docker.internal",
+  "appium:remoteAdbPort": 5037
+}
+

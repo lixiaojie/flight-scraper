@@ -6,6 +6,9 @@ WORKDIR /app
 # 复制package文件
 COPY package*.json ./
 
+# 配置npm国内源
+RUN npm config set registry https://registry.npmmirror.com
+
 # 创建node_modules目录并设置权限
 RUN mkdir -p node_modules && chown -R node:node /app
 

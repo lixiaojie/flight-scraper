@@ -44,6 +44,7 @@ const TaskRecords: React.FC = () => {
   const [toCity, setToCity] = useState('上海');
   const [departDate, setDepartDate] = useState<string>(() => new Date().toISOString().slice(0,10));
   const [platform, setPlatform] = useState('12306');
+  const [airline, setAirline] = useState('深圳航空');
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -68,7 +69,7 @@ const TaskRecords: React.FC = () => {
     setProgressMsg('任务已创建，正在执行...');
     const timer = setInterval(async () => {
       try {
-        const res = await apiFetch('/api/tasks');
+        const res = await apiFetch('/api/tasks/');
         if (res.ok) {
           const list: TaskRecord[] = await res.json();
           const t = list.find(x => x.id === taskId);
@@ -85,18 +86,29 @@ const TaskRecords: React.FC = () => {
     try {
       setErrorMsg('');
       setCreating(true);
-      console.log('Creating task with config:', { fromCity, toCity, departDate, platform });
-      const response = await apiFetch('/api/tasks', {
+      console.log('Creating task with config:', { fromCity, toCity, departDate, platform, airline });
+      const response = await apiFetch('/api/tasks/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           source: platform || '12306', 
           task_type: 'flight_scraper',
-          config: { fromCity, toCity, departDate }
+          config: { fromCity, toCity, departDate },
+          airline: airline
         })
       });
       if (!response.ok) {
-        setErrorMsg(`创建失败：${response.status}`);
+        // 尝试获取详细错误信息
+        let errorDetail = `创建失败：${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) {
+            errorDetail = `创建失败：${errorData.detail}`;
+          }
+        } catch (e) {
+          // 如果响应不是JSON，使用默认错误信息
+        }
+        setErrorMsg(errorDetail);
         return;
       }
       const created: TaskRecord = await response.json();
@@ -114,7 +126,7 @@ const TaskRecords: React.FC = () => {
   // 获取统计信息
   const fetchStatistics = async () => {
     try {
-      const response = await apiFetch('/api/tasks/statistics');
+      const response = await apiFetch('/api/tasks/stats');
       if (response.ok) {
         const data = await response.json();
         setStatistics(data);
@@ -151,14 +163,25 @@ const TaskRecords: React.FC = () => {
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return '-';
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
+    const totalSeconds = Math.round(seconds);  // 四舍五入到秒
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainingSeconds = totalSeconds % 60;
     return `${minutes}分${remainingSeconds}秒`;
   };
 
   const formatDateTime = (dateTime?: string) => {
     if (!dateTime) return '-';
-    return new Date(dateTime).toLocaleString('zh-CN');
+    // 确保正确处理UTC时间，转换为本地时间显示
+    const date = new Date(dateTime);
+    return date.toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
   };
 
   return (
@@ -282,6 +305,32 @@ const TaskRecords: React.FC = () => {
                   <option value="12306">12306</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">指定航空公司</label>
+                <select value={airline} onChange={e=>setAirline(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                  <option value="全部">全部</option>
+                  <option value="深圳航空">深圳航空</option>
+                  <option value="中国国际航空">中国国际航空</option>
+                  <option value="中国东方航空">中国东方航空</option>
+                  <option value="中国南方航空">中国南方航空</option>
+                  <option value="海南航空">海南航空</option>
+                  <option value="四川航空">四川航空</option>
+                  <option value="春秋航空">春秋航空</option>
+                  <option value="首都航空">首都航空</option>
+                  <option value="吉祥航空">吉祥航空</option>
+                  <option value="山东航空">山东航空</option>
+                  <option value="厦门航空">厦门航空</option>
+                  <option value="华夏航空">华夏航空</option>
+                  <option value="长龙航空">长龙航空</option>
+                  <option value="成都航空">成都航空</option>
+                  <option value="瑞丽航空">瑞丽航空</option>
+                  <option value="北部湾航空">北部湾航空</option>
+                  <option value="福州航空">福州航空</option>
+                  <option value="昆明航空">昆明航空</option>
+                  <option value="龙江航空">龙江航空</option>
+                  <option value="重庆航空">重庆航空</option>
+                </select>
+              </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <Button variant="outline" onClick={()=>setShowDialog(false)}>取消</Button>
@@ -312,7 +361,10 @@ const TaskRecords: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-4 mb-2">
-                      <h3 className="text-lg font-semibold">{task.task_name}</h3>
+                      <div>
+                        <h3 className="text-lg font-semibold">{task.task_name}</h3>
+                        <span className="text-sm text-gray-500">任务编号: #{task.id}</span>
+                      </div>
                       {getStatusBadge(task.status, task.success)}
                     </div>
                     

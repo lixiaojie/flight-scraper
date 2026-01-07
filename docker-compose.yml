@@ -4,12 +4,14 @@ services:
     build:
       context: ./backend
       dockerfile: ./backend.Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./flight_scraper.db
-      - APPIUM_SERVER_URL=http://host.docker.internal:4723
-      - SCRAPER_DEVICE_UDID=emulator-5554
+      - DATABASE_LOCATION=root
+      - SCRAPER_CONFIG_PATH=/app/scripts/config/scraper.config.json
     volumes:
       - ./data:/app/data
       - ./backend:/app
@@ -30,30 +32,15 @@ services:
       dockerfile: ./frontend.Dockerfile
       args:
         - VITE_API_BASE=http://localhost:8000
+        - BUILDKIT_INLINE_CACHE=1
     ports:
-      - "3000:3000"
+      - "3002:3000"
     depends_on:
       - web
     networks:
       - app-network
     environment:
       - VITE_API_BASE=http://localhost:8000
-
-  # Android 模拟器服务
-  android-emulator:
-    image: budtmo/docker-android:emulator_11.0
-    privileged: true
-    ports:
-      - "5555:5555"  # ADB
-      - "6080:6080"  # VNC
-    environment:
-      - EMULATOR_DEVICE=Samsung Galaxy S10
-      - WEB_VNC=true
-      - VNC_PASSWORD=password
-    volumes:
-      - android_data:/root/.android
-    networks:
-      - app-network
 
   # Appium 服务
   appium:
@@ -62,13 +49,18 @@ services:
       dockerfile: ./appium.Dockerfile
     ports:
       - "4723:4723"
-    depends_on:
-      - android-emulator
+    depends_on: []
     environment:
       - ANDROID_HOME=/opt/android-sdk
       - JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-      - ADB_SERVER_HOST=host.docker.internal
-      - ADB_SERVER_PORT=5037
+      - ANDROID_ADB_SERVER_HOST=host.docker.internal
+      - ANDROID_ADB_SERVER_PORT=5037
+      - ADB_SERVER_SOCKET=tcp:host.docker.internal:5037
+      - ADB_HOST=host.docker.internal
+      - ADB_PORT=5037
+      - ADB_CONNECT_TARGET=
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./scripts:/app/scripts
     networks:
@@ -89,7 +81,7 @@ services:
       - appium
     environment:
       - API_BASE_URL=http://web:8000
-      - APPIUM_SERVER_URL=http://appium:4723
+      - SCRAPER_CONFIG_PATH=/app/scripts/config/scraper.config.json
     volumes:
       - ./scripts:/app/scripts
       - ./results:/app/results
@@ -113,9 +105,6 @@ services:
   #     - frontend
   #   networks:
   #     - app-network
-
-volumes:
-  android_data:
 
 networks:
   app-network:

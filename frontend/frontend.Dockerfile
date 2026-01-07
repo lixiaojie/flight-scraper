@@ -5,8 +5,9 @@ WORKDIR /app
 # 复制package文件
 COPY package*.json ./
 
-# 安装依赖
-RUN npm install
+# 配置npm国内源并安装依赖
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install
 
 # 复制源代码
 COPY . .
@@ -24,8 +25,11 @@ FROM nginx:alpine
 # 复制构建好的文件
 COPY --from=0 /app/dist /usr/share/nginx/html
 
-# 创建nginx配置
-RUN echo 'events { worker_connections 1024; } http { include /etc/nginx/mime.types; default_type application/octet-stream; sendfile on; keepalive_timeout 65; server { listen 3000; server_name localhost; location / { root /usr/share/nginx/html; index index.html index.htm; try_files $uri $uri/ /index.html; } } }' > /etc/nginx/nginx.conf
+# 复制nginx配置文件
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# 删除默认配置文件避免冲突
+RUN rm -f /etc/nginx/conf.d/default.conf
 
 # 暴露端口
 EXPOSE 3000

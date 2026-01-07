@@ -4,6 +4,7 @@
 添加更多航班信息字段
 """
 
+from database_config import DATABASE_URL
 import sys
 import os
 from sqlalchemy import create_engine, text
@@ -11,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 # 确保路径正确，以便找到数据库文件
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.config import DATABASE_URL
+
 
 def run_migration():
     engine = create_engine(DATABASE_URL)
@@ -20,9 +21,10 @@ def run_migration():
     db = SessionLocal()
     try:
         print("🔍 检查现有表结构...")
-        
+
         # 检查 flight_results 表是否存在
-        result = db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='flight_results'"))
+        result = db.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='flight_results'"))
         if not result.fetchone():
             print("⚠️ 表 'flight_results' 不存在，跳过迁移。请确保应用已运行并创建了表。")
             return
@@ -50,18 +52,21 @@ def run_migration():
         for column_name, column_type, comment in new_columns:
             if column_name not in existing_columns:
                 print(f"➕ 添加列: {column_name} {column_type}")
-                db.execute(text(f"ALTER TABLE flight_results ADD COLUMN {column_name} {column_type}"))
+                db.execute(
+                    text(
+                        f"ALTER TABLE flight_results ADD COLUMN {column_name} {column_type}"))
             else:
                 print(f"跳过添加列: {column_name} (已存在)")
 
         db.commit()
         print("✅ 数据库迁移完成")
-        
+
     except Exception as e:
         db.rollback()
         print(f"❌ 数据库迁移失败: {e}")
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     run_migration()
