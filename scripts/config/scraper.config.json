@@ -6,5 +6,7 @@
   "adbPort": 5037,
   "remoteAdbHost": "host.docker.internal",
   "remoteAdbPort": 5037,
-  "outputDir": "/app/results"
+  "outputDir": "/app/results",
+  "llmApiType": "zai",
+  "llmApiKey": "1f3dfbf15dfb41488e34c87ef478e023.Ez05JCLs9ix8GPTh"
 }

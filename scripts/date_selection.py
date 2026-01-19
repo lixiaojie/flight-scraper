@@ -25,26 +25,6 @@ def step4c_select_date(driver, depart_date):
         print("ℹ️ 未提供出发日期，跳过选择")
         return True
     
-    # 先检查当前页面显示的日期是否与目标一致
-    try:
-        from city_selection import get_current_page_settings
-        current_settings = get_current_page_settings(driver)
-        current_date = current_settings.get('depart_date')
-        
-        if current_date:
-            # 尝试解析当前日期和目标日期进行比较
-            try:
-                target_date_obj = datetime.strptime(depart_date, "%Y-%m-%d").date()
-                current_date_obj = datetime.strptime(current_date, "%Y-%m-%d").date()
-                if current_date_obj == target_date_obj:
-                    print(f"✅ 当前日期已是 {depart_date}，无需修改")
-                    return True
-            except:
-                # 如果日期格式不匹配，继续执行选择流程
-                pass
-    except Exception as e:
-        print(f"⚠️ 检查当前日期失败: {e}，继续执行日期选择")
-        
     try:
         today = date.today()
         weekday_map = {
@@ -55,6 +35,57 @@ def step4c_select_date(driver, depart_date):
             4: "周五",
             5: "周六",
             6: "周日"}
+
+        # 解析目标日期
+        try:
+            target = datetime.strptime(depart_date, "%Y-%m-%d").date()
+        except Exception:
+            print(f"⚠️ 出发日期格式非法: {depart_date}")
+            return True
+
+        # 生成目标日期的候选展示文案
+        month_day = f"{target.month}月{target.day}日"
+        delta = (target - today).days
+        target_candidates = []
+        if delta == 0:
+            target_candidates.append(f"{month_day}今天")
+        elif delta == 1:
+            target_candidates.append(f"{month_day}明天")
+        elif delta == 2:
+            target_candidates.append(f"{month_day}后天")
+        # 周几文案始终作为候选
+        target_candidates.append(f"{month_day}{weekday_map[target.weekday()]}")
+
+        # 在打开日历之前，先检查页面显示的日期是否已经是目标日期
+        print("🔍 检查页面显示的日期是否已是目标日期...")
+        try:
+            page = driver.page_source
+            root = etree.fromstring(page.encode('utf-8'))
+            visible_date_texts = []
+            for el in root.xpath('//*[@text]'):
+                text = el.get('text') or ''
+                # 匹配形如"1月10日后天"这样的日期格式
+                if ('月' in text and '日' in text and (
+                        '周' in text or '今天' in text or '明天' in text or '后天' in text)):
+                    visible_date_texts.append(text)
+            
+            print(f"🔍 页面显示的日期文本: {visible_date_texts}")
+            print(f"🎯 目标日期候选文案: {target_candidates}")
+            
+            # 检查是否有匹配的日期文本
+            for visible_text in visible_date_texts:
+                for target_candidate in target_candidates:
+                    if target_candidate in visible_text or visible_text in target_candidate:
+                        # 进一步验证：提取月份和日期数字进行匹配
+                        visible_match = re.search(r'(\d+)月(\d+)日', visible_text)
+                        if visible_match:
+                            visible_month = int(visible_match.group(1))
+                            visible_day = int(visible_match.group(2))
+                            if visible_month == target.month and visible_day == target.day:
+                                print(f"✅ 页面已显示目标日期 {visible_text}，无需重复选择")
+                                return True
+        except Exception as e:
+            print(f"⚠️ 检查页面日期失败: {e}，继续执行日期选择")
 
         # 查找任何形如"X月X日周X"格式的日期文本并点击激活日历视图
         calendar_opened = False
@@ -105,27 +136,8 @@ def step4c_select_date(driver, depart_date):
             wait_step(driver, 2)  # 等待日历加载
             print("✅ 日历已加载完成")
 
-        try:
-            target = datetime.strptime(depart_date, "%Y-%m-%d").date()
-        except Exception:
-
-            print(f"⚠️ 出发日期格式非法: {depart_date}")
-            return True
-
-        # 生成候选展示文案
-        month_day = f"{target.month}月{target.day}日"
-        delta = (target - today).days
-        candidates = []
-        if delta == 0:
-            candidates.append(f"{month_day}今天")
-        elif delta == 1:
-
-            candidates.append(f"{month_day}明天")
-        elif delta == 2:
-
-            candidates.append(f"{month_day}后天")
-        # 周几文案始终作为候选
-        candidates.append(f"{month_day}{weekday_map[target.weekday()]}")
+        # 使用之前生成的目标候选文案
+        candidates = target_candidates
 
         # 提取页面文本（如果日历已打开，使用刷新后的页面源码）
         if not calendar_opened:

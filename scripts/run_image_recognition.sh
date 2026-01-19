@@ -33,8 +33,37 @@ IMAGE_NAME=$(basename "$IMAGE_PATH")
 IMAGE_DIR=$(dirname "$IMAGE_PATH")
 
 # 设置环境变量
-export ZAI_API_KEY="${ZAI_API_KEY:-1f3dfbf15dfb41488e34c87ef478e023.Ez05JCLs9ix8GPTh}"
-export LLM_API_TYPE="${LLM_API_TYPE:-zai}"
+export CONFIG_PATH="${SCRAPER_CONFIG_PATH:-$PROJECT_DIR/scripts/config/scraper.config.json}"
+
+CONFIG_LLM_API_TYPE=""
+CONFIG_LLM_API_KEY=""
+if [ -f "$CONFIG_PATH" ]; then
+    CONFIG_LLM_API_TYPE=$(python3 - <<'PY'
+import json, os
+path = os.environ.get("CONFIG_PATH")
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    print(cfg.get("llmApiType", ""))
+except Exception:
+    print("")
+PY
+)
+    CONFIG_LLM_API_KEY=$(python3 - <<'PY'
+import json, os
+path = os.environ.get("CONFIG_PATH")
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    print(cfg.get("llmApiKey", ""))
+except Exception:
+    print("")
+PY
+)
+fi
+
+export LLM_API_TYPE="${LLM_API_TYPE:-${CONFIG_LLM_API_TYPE:-zai}}"
+export ZAI_API_KEY="${ZAI_API_KEY:-$CONFIG_LLM_API_KEY}"
 
 echo "📋 配置信息:"
 echo "   图片路径: $IMAGE_PATH"

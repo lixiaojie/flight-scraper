@@ -25,12 +25,37 @@ fi
 # 设置环境变量
 export UDID="${UDID:-emulator-5554}"
 export APPIUM_SERVER_URL="${APPIUM_SERVER_URL:-http://appium:4723}"
-export ZAI_API_KEY="${ZAI_API_KEY:-1f3dfbf15dfb41488e34c87ef478e023.Ez05JCLs9ix8GPTh}"
-export LLM_API_TYPE="${LLM_API_TYPE:-zai}"
+export CONFIG_PATH="${SCRAPER_CONFIG_PATH:-$PROJECT_DIR/scripts/config/scraper.config.json}"
 
-# 使用z.ai提供的免费API
-# 模型版本: GLM_4.6V_Flash
-# API密钥: 1f3dfbf15dfb41488e34c87ef478e023.Ez05JCLs9ix8GPTh
+CONFIG_LLM_API_TYPE=""
+CONFIG_LLM_API_KEY=""
+if [ -f "$CONFIG_PATH" ]; then
+    CONFIG_LLM_API_TYPE=$(python3 - <<'PY'
+import json, os
+path = os.environ.get("CONFIG_PATH")
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    print(cfg.get("llmApiType", ""))
+except Exception:
+    print("")
+PY
+)
+    CONFIG_LLM_API_KEY=$(python3 - <<'PY'
+import json, os
+path = os.environ.get("CONFIG_PATH")
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = json.load(f)
+    print(cfg.get("llmApiKey", ""))
+except Exception:
+    print("")
+PY
+)
+fi
+
+export LLM_API_TYPE="${LLM_API_TYPE:-${CONFIG_LLM_API_TYPE:-zai}}"
+export ZAI_API_KEY="${ZAI_API_KEY:-$CONFIG_LLM_API_KEY}"
 
 echo "📋 配置信息:"
 echo "   UDID: $UDID"

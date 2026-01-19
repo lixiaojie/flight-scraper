@@ -17,6 +17,19 @@ except ImportError:
     PIL_AVAILABLE = False
 
 
+def _load_scraper_config() -> dict:
+    """读取统一配置文件（可选），用于补充环境变量。"""
+    cfg_path = os.getenv("SCRAPER_CONFIG_PATH")
+    if not cfg_path:
+        return {}
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
 def encode_image_to_base64(image_bytes: bytes) -> str:
     """将图片编码为base64字符串"""
     return base64.b64encode(image_bytes).decode('utf-8')
@@ -73,7 +86,11 @@ def _parse_with_openai(base64_image: str, api_key: Optional[str] = None) -> List
         
         if not api_key:
             api_key = os.getenv('OPENAI_API_KEY')
-        
+
+        if not api_key:
+            config = _load_scraper_config()
+            api_key = config.get('openaiApiKey') or config.get('llmApiKey')
+
         if not api_key:
             print("⚠️ 未设置OPENAI_API_KEY环境变量")
             return []
@@ -171,7 +188,11 @@ def _parse_with_anthropic(base64_image: str, api_key: Optional[str] = None) -> L
         
         if not api_key:
             api_key = os.getenv('ANTHROPIC_API_KEY')
-        
+
+        if not api_key:
+            config = _load_scraper_config()
+            api_key = config.get('anthropicApiKey') or config.get('llmApiKey')
+
         if not api_key:
             print("⚠️ 未设置ANTHROPIC_API_KEY环境变量")
             return []
@@ -272,7 +293,11 @@ def _parse_with_google(base64_image: str, api_key: Optional[str] = None) -> List
         
         if not api_key:
             api_key = os.getenv('GOOGLE_API_KEY')
-        
+
+        if not api_key:
+            config = _load_scraper_config()
+            api_key = config.get('googleApiKey') or config.get('llmApiKey')
+
         if not api_key:
             print("⚠️ 未设置GOOGLE_API_KEY环境变量")
             return []
@@ -355,7 +380,11 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
         
         if not api_key:
             api_key = os.getenv('ZAI_API_KEY')
-        
+
+        if not api_key:
+            config = _load_scraper_config()
+            api_key = config.get('zaiApiKey') or config.get('llmApiKey')
+
         if not api_key:
             print("⚠️ 未设置ZAI_API_KEY环境变量")
             return []
@@ -376,8 +405,9 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
    - 航班号（如：MU6648, CZ3911等，只提取纯航班号，不要包含航空公司名称）
    - 出发时间（如：20:30）
    - 到达时间（如：23:15）
-   - 出发机场（如：成都双流T2）
-   - 到达机场（如：北京大兴）
+   - 出发机场（完整名称，如：昆明长水、深圳宝安T3、成都双流T2）
+   - 到达机场（完整名称，如：北京大兴、深圳宝安T3）
+   - 飞行时长（如果有显示，格式如：2h5m、2h30m、1h50m；如果没有显示则留空）
    - 价格（如：¥450起，只提取数字）
    - 折扣信息（如：经济舱2.0折）
    - 舱位等级（经济舱/商务舱/头等舱）
@@ -387,6 +417,7 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
    - 是否共享航班（是/否，如果显示"共享"、"代码共享"等字样则填"是"，否则填"否"）
 
 3. 确保每个航班的信息都来自同一个卡片，不要跨卡片匹配
+4. 机场名称要完整提取，包括航站楼信息（如T1、T2、T3）
 
 请以JSON格式返回结果，格式如下：
 [
@@ -396,6 +427,7 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
     "arrival_time": "23:15",
     "departure_airport": "成都双流T2",
     "arrival_airport": "北京大兴",
+    "flight_duration": "2h5m",
     "price": 450,
     "discount_rate": "2.0折",
     "cabin_class": "经济舱",
@@ -479,32 +511,58 @@ def _normalize_flight_data(flights_data: List[Dict[str, Any]]) -> List[Dict[str,
             # 如果正则匹配失败，尝试直接使用原始值
             flight_number = flight_number_raw.strip()
         
-        # 提取机场代码（如果有）
-        dep_airport = flight.get('departure_airport', '')
-        arr_airport = flight.get('arrival_airport', '')
+        # 提取机场信息（保留原始名称，同时提取代码和航站楼）
+        dep_airport_raw = flight.get('departure_airport', '').strip()
+        arr_airport_raw = flight.get('arrival_airport', '').strip()
         
-        # 从机场名称中提取三字码（简单匹配）
+        # 机场名称到三字码的映射
+        airport_map = {
+            '双流': 'CTU', '天府': 'TFU', '宝安': 'SZX', '首都': 'PEK',
+            '大兴': 'PKX', '虹桥': 'SHA', '浦东': 'PVG', '白云': 'CAN',
+            '长水': 'KMG', '新郑': 'CGO', '萧山': 'HGH', '禄口': 'NKG',
+            '天河': 'WUH', '黄花': 'CSX', '高崎': 'XMN', '长乐': 'FOC',
+            '胶东': 'TAO', '周水子': 'DLC', '地窝堡': 'URC'
+        }
+        
+        # 提取出发机场代码和航站楼
         dep_air = ''
-        arr_air = ''
-        if 'T1' in dep_airport or 'T2' in dep_airport or 'T3' in dep_airport:
-            # 尝试从常见机场名称提取代码
-            airport_map = {
-                '双流': 'CTU', '天府': 'TFU', '宝安': 'SZX', '首都': 'PEK',
-                '大兴': 'PKX', '虹桥': 'SHA', '浦东': 'PVG', '白云': 'CAN'
-            }
+        dep_terminal = ''
+        if dep_airport_raw:
+            # 尝试提取三字码
             for name, code in airport_map.items():
-                if name in dep_airport:
+                if name in dep_airport_raw:
                     dep_air = code
                     break
-                if name in arr_airport:
+            # 提取航站楼（T1/T2/T3）
+            terminal_match = re.search(r'[Tt](\d+)', dep_airport_raw)
+            if terminal_match:
+                dep_terminal = f"T{terminal_match.group(1)}"
+        
+        # 提取到达机场代码和航站楼
+        arr_air = ''
+        arr_terminal = ''
+        if arr_airport_raw:
+            # 尝试提取三字码
+            for name, code in airport_map.items():
+                if name in arr_airport_raw:
                     arr_air = code
                     break
+            # 提取航站楼（T1/T2/T3）
+            terminal_match = re.search(r'[Tt](\d+)', arr_airport_raw)
+            if terminal_match:
+                arr_terminal = f"T{terminal_match.group(1)}"
         
-        # 计算飞行时长
-        flight_duration = ''
+        # 保留原始机场名称（如果没有三字码，使用原始名称）
+        dep_airport = dep_airport_raw if dep_airport_raw else (dep_air if dep_air else '')
+        arr_airport = arr_airport_raw if arr_airport_raw else (arr_air if arr_air else '')
+        
+        # 计算飞行时长（优先使用大模型返回的，如果没有则计算）
+        flight_duration = flight.get('flight_duration', '')
         dep_time = flight.get('departure_time', '')
         arr_time = flight.get('arrival_time', '')
-        if dep_time and arr_time:
+        
+        # 如果没有飞行时长，从时间计算
+        if not flight_duration and dep_time and arr_time:
             try:
                 dep_h, dep_m = map(int, dep_time.split(':'))
                 arr_h, arr_m = map(int, arr_time.split(':'))
@@ -515,9 +573,14 @@ def _normalize_flight_data(flights_data: List[Dict[str, Any]]) -> List[Dict[str,
                 duration_minutes = arr_minutes - dep_minutes
                 hours = duration_minutes // 60
                 minutes = duration_minutes % 60
-                flight_duration = f"{hours}小时{minutes}分钟" if hours > 0 else f"{minutes}分钟"
-            except:
-                pass
+                # 格式化：2h5m 或 2小时5分钟
+                if hours > 0:
+                    flight_duration = f"{hours}h{minutes}m" if minutes > 0 else f"{hours}h"
+                else:
+                    flight_duration = f"{minutes}m"
+            except Exception as e:
+                print(f"⚠️ 计算飞行时长失败: {e}")
+                flight_duration = ''
         
         # 提取航司代码（使用清理后的航班号）
         try:
@@ -541,10 +604,10 @@ def _normalize_flight_data(flights_data: List[Dict[str, Any]]) -> List[Dict[str,
             'aircraft_type': flight.get('aircraft_type', ''),
             'departure_date': depart_date,
             'departure_time': dep_time,
-            'departure_airport': dep_air,
+            'departure_airport': dep_airport,  # 保留原始机场名称
             'departure_city': from_city,
             'arrival_time': arr_time,
-            'arrival_airport': arr_air,
+            'arrival_airport': arr_airport,  # 保留原始机场名称
             'arrival_city': to_city,
             'flight_duration': flight_duration,
             'has_stopover': has_stopover if has_stopover in ['是', '否'] else '否',
@@ -557,10 +620,10 @@ def _normalize_flight_data(flights_data: List[Dict[str, Any]]) -> List[Dict[str,
             'original_price': None,
             'source': '12306',
             'status': 'active',
-            'departure_airport_name': dep_airport,
-            'arrival_airport_name': arr_airport,
-            'departure_terminal': '',
-            'arrival_terminal': '',
+            'departure_airport_code': dep_air,  # 三字码（如果有）
+            'arrival_airport_code': arr_air,  # 三字码（如果有）
+            'departure_terminal': dep_terminal,  # 航站楼（如果有）
+            'arrival_terminal': arr_terminal,  # 航站楼（如果有）
         }
         
         normalized.append(normalized_flight)

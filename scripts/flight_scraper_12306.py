@@ -28,6 +28,19 @@ def tprint(*args, **kwargs):
     print(f"[{timestamp}]", *args, **kwargs)
 
 
+def _load_scraper_config() -> dict:
+    """读取统一配置文件（可选），用于补充环境变量。"""
+    cfg_path = os.getenv("SCRAPER_CONFIG_PATH")
+    if not cfg_path:
+        return {}
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
 # 新增：编排入口所需模块
 try:
     from .device_connection import connect_device
@@ -1078,41 +1091,77 @@ class FlightScraper12306:
                 print(f"✅ 使用{method_used.upper()}模式识别到 {len(flights)} 个航班")
 
                 if method_used == 'ocr' and ocr_text:
-                    # OCR模式：优先尝试大模型视觉API，如果失败则使用传统OCR解析
+                    # OCR模式：优先尝试大模型视觉API，失败时使用OCR补充并标记字段来源
                     try:
-                        parsed_flights = []
+                        llm_flights = []
+                        ocr_flights = []
                         
-                        # 尝试使用大模型视觉API（如果配置了API密钥）
-                        llm_api_type = os.getenv('LLM_API_TYPE', '').lower()
+                        # 步骤1: 优先尝试大模型视觉API（默认使用Z.ai GLM-4.6V-Flash）
+                        config = _load_scraper_config()
+                        llm_api_type = (
+                            os.getenv('LLM_API_TYPE')
+                            or config.get('llmApiType')
+                            or 'zai'
+                        ).lower()
                         llm_api_key = None
-                        use_llm = False
-                        
+                        llm_success = False
+
                         if llm_api_type in ['openai', 'anthropic', 'google', 'zai', 'glm']:
                             if llm_api_type == 'openai':
-                                llm_api_key = os.getenv('OPENAI_API_KEY')
+                                llm_api_key = (
+                                    os.getenv('OPENAI_API_KEY')
+                                    or config.get('openaiApiKey')
+                                    or config.get('llmApiKey')
+                                )
                             elif llm_api_type == 'anthropic':
-                                llm_api_key = os.getenv('ANTHROPIC_API_KEY')
+                                llm_api_key = (
+                                    os.getenv('ANTHROPIC_API_KEY')
+                                    or config.get('anthropicApiKey')
+                                    or config.get('llmApiKey')
+                                )
                             elif llm_api_type == 'google':
-                                llm_api_key = os.getenv('GOOGLE_API_KEY')
+                                llm_api_key = (
+                                    os.getenv('GOOGLE_API_KEY')
+                                    or config.get('googleApiKey')
+                                    or config.get('llmApiKey')
+                                )
                             elif llm_api_type in ['zai', 'glm']:
-                                llm_api_key = os.getenv('ZAI_API_KEY')
+                                llm_api_key = (
+                                    os.getenv('ZAI_API_KEY')
+                                    or config.get('zaiApiKey')
+                                    or config.get('llmApiKey')
+                                )
                             
                             if llm_api_key:
-                                use_llm = True
-                                print(f"🤖 尝试使用{llm_api_type.upper()}大模型视觉API解析...")
+                                print(f"🤖 优先使用{llm_api_type.upper()}大模型视觉API解析...")
                                 try:
                                     from parser_llm_vision import parse_screenshot_with_llm
-                                    parsed_flights = parse_screenshot_with_llm(
+                                    llm_flights = parse_screenshot_with_llm(
                                         self.driver, api_type=llm_api_type, api_key=llm_api_key)
-                                    if parsed_flights:
-                                        print(f"✅ 大模型视觉API解析成功，提取到 {len(parsed_flights)} 条航班信息")
+                                    if llm_flights:
+                                        print(f"✅ 大模型视觉API解析成功，提取到 {len(llm_flights)} 条航班信息")
+                                        llm_success = True
+                                        # 大模型成功时，直接使用大模型结果，不再调用OCR
+                                        parsed_flights = llm_flights
+                                        print(f"✅ 使用大模型识别结果：{len(llm_flights)} 个航班")
+                                    else:
+                                        print(f"⚠️ 大模型视觉API未提取到航班信息，将使用OCR补充")
+                                        llm_success = False
                                 except Exception as e:
-                                    print(f"⚠️ 大模型视觉API解析失败: {e}，回退到传统OCR解析")
-                                    use_llm = False
+                                    print(f"⚠️ 大模型视觉API解析异常: {e}，将使用OCR补充")
+                                    import traceback
+                                    traceback.print_exc()
+                                    llm_success = False
+                            else:
+                                print(f"⚠️ 未配置{llm_api_type.upper()} API密钥，将使用OCR识别")
+                                llm_success = False
+                        else:
+                            print(f"⚠️ 未配置LLM_API_TYPE或类型不支持，将使用OCR识别")
+                            llm_success = False
                         
-                        # 如果大模型解析失败或未配置，使用传统OCR解析
-                        if not parsed_flights:
-                            print("🔍 使用OCR解析器提取完整航班信息...")
+                        # 步骤2: 如果大模型未成功，使用OCR解析器
+                        if not llm_success:
+                            print("🔍 使用OCR解析器提取航班信息...")
                             try:
                                 # 获取页面源码作为备用（用于提取额外信息）
                                 try:
@@ -1121,11 +1170,21 @@ class FlightScraper12306:
                                     page_source_fallback = None
 
                                 # 使用OCR解析器解析
-                                parsed_flights = parse_ocr_text(
-                                    ocr_text, page_source_fallback)
+                                ocr_flights = parse_ocr_text(ocr_text, page_source_fallback)
+                                if ocr_flights:
+                                    print(f"✅ OCR解析器提取到 {len(ocr_flights)} 条航班信息")
+                                    # OCR结果标记所有字段来源为OCR
+                                    from merge_llm_ocr_results import merge_llm_ocr_results
+                                    parsed_flights = merge_llm_ocr_results([], ocr_flights)
+                                    print(f"✅ 使用OCR识别：{len(ocr_flights)} 个航班（已标记字段来源）")
+                                else:
+                                    parsed_flights = []
                             except Exception as e:
                                 print(f"⚠️ OCR解析失败: {e}")
                                 parsed_flights = []
+                        else:
+                            # 大模型已成功，无需OCR
+                            ocr_flights = []
 
                         if parsed_flights:
                             print(f"✅ OCR解析器提取到 {len(parsed_flights)} 条完整航班信息")

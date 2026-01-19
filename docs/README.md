@@ -2,21 +2,18 @@
 
 ## 🎯 项目概述
 
-Flight Scraper 是一个集成了 Web 服务、Android 模拟器和 Appium 自动化测试的完整解决方案。
+Flight Scraper 是一个集成 Web 服务、Android 模拟器和 Appium 自动化采集的完整方案。
 
 ## 🏗️ 项目结构
 
 ```
 flight-scraper/
-├── services/           # 核心服务
-│   ├── web/           # Web 服务 (Backend + Frontend)
-│   ├── android/       # Android 服务配置
-│   └── appium/        # Appium 自动化测试
-├── docker/            # Docker 配置文件
-├── scripts/           # 部署和管理脚本
-├── docs/              # 项目文档
-├── assets/            # 资源文件
-└── docker-compose.yml # Docker Compose 配置
+├── backend/        # FastAPI 后端
+├── frontend/       # React 前端
+├── scripts/        # 抓取与运维脚本
+├── docs/           # 项目文档
+├── assets/         # 资源文件
+└── docker-compose.yml
 ```
 
 ## 🚀 快速开始
@@ -53,9 +50,8 @@ flight-scraper/
 - **配置**: 支持多种 Android 版本和设备
 
 ### Appium 服务
-- **自动化测试**: Appium 自动化测试服务 (端口 4723)
+- **自动化采集**: Appium 自动化采集服务 (端口 4723)
 - **驱动**: UiAutomator2 驱动支持
-- **脚本**: 完整的自动化测试脚本
 
 ## 📱 使用说明
 
@@ -65,13 +61,13 @@ flight-scraper/
 - Android 模拟器: http://localhost:6080
 - Appium 服务: http://localhost:4723
 
-### 2. 自动化测试
+### 2. 启动抓取任务
 ```bash
-# 进入 Appium 容器
-docker-compose exec appium bash
+# 使用默认配置启动抓取
+./scripts/run_scraper.sh
 
-# 运行测试脚本
-python3 appium_automation_script.py
+# 仅运行航班抓取流程
+./scripts/run_flight_scraper.sh
 ```
 
 ### 3. 开发调试
@@ -116,10 +112,8 @@ docker-compose exec [service_name] bash
 
 ## 📚 更多文档
 
-- [登录问题修复总结](./Login_Issue_Fix_Summary.md)
-- [422错误修复总结](./422_Error_Fix_Summary.md)
-- [系统优化总结](./System_Optimization_Summary.md)
-- [最终登录修复总结](./Final_Login_Fix_Summary.md)
-- [最终422错误修复总结](./Final_422_Error_Fix_Summary.md)
+- [Flight Scraper 指南](./Flight_Scraper_Guide.md)
 - [航班结果系统指南](./Flight_Results_System_Guide.md)
-- [最终系统状态总结](./Final_System_Status_Summary.md)
+- [性能优化](./PERFORMANCE_OPTIMIZATION.md)
+- [OCR 集成](./OCR_INTEGRATION_AND_OPTIMIZATION.md)
+- 其他排障与总结类文档请见 `docs/` 目录
