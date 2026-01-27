@@ -6,12 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
 
 from core.database import get_db
 from services.task_service import TaskService
 from models.task_record import TaskRecord
-from schemas.task_schema import TaskRecordResponse, TaskStatisticsResponse, CreateTaskRequest
+from schemas.task_schema import (
+    TaskRecordResponse, TaskStatisticsResponse, CreateTaskRequest,
+    BatchCreateTaskRequest, TaskSummaryResponse, BatchTaskSummaryResponse,
+    UpdateTaskNotesRequest
+)
+from services.task_scheduler import TaskScheduler
+from services.task_summary import TaskSummaryService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -173,10 +178,6 @@ async def update_task_result(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class UpdateTaskNotesRequest(BaseModel):
-    notes: str
-
-
 @router.put("/{task_id}/notes")
 async def update_task_notes(
     task_id: int,
@@ -214,5 +215,107 @@ async def cleanup_old_tasks(
 
         return {"message": f"成功删除 {deleted_count} 条旧任务记录"}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch", response_model=List[TaskRecordResponse])
+async def create_batch_tasks(
+    request: BatchCreateTaskRequest,
+    db: Session = Depends(get_db)
+):
+    """批量创建任务并按计划执行"""
+    try:
+        scheduler = TaskScheduler(db)
+        created_tasks = scheduler.create_batch_tasks(
+            tasks=request.tasks,
+            execute_immediately=request.execute_immediately,
+            sequential=request.sequential
+        )
+        
+        return [task.to_dict() for task in created_tasks]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{task_id:int}/summary", response_model=TaskSummaryResponse)
+async def get_task_summary(
+    task_id: int,
+    db: Session = Depends(get_db)
+):
+    """获取任务摘要"""
+    try:
+        summary_service = TaskSummaryService(db)
+        summary = summary_service.generate_task_summary(task_id)
+        
+        if not summary:
+            raise HTTPException(status_code=404, detail="任务记录未找到")
+        
+        return summary
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch/summary", response_model=BatchTaskSummaryResponse)
+async def get_batch_task_summary(
+    task_ids: List[int] = Body(..., description="任务ID列表"),
+    db: Session = Depends(get_db)
+):
+    """批量获取任务摘要"""
+    try:
+        summary_service = TaskSummaryService(db)
+        summaries = summary_service.generate_batch_summary(task_ids)
+        statistics = summary_service.generate_summary_statistics(task_ids)
+        
+        return {
+            "summaries": summaries,
+            "statistics": statistics
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/summary/range", response_model=List[TaskSummaryResponse])
+async def get_task_summary_by_range(
+    start_date: Optional[str] = Query(None, description="开始日期 (ISO格式)"),
+    end_date: Optional[str] = Query(None, description="结束日期 (ISO格式)"),
+    status: Optional[str] = Query(None, description="任务状态筛选"),
+    db: Session = Depends(get_db)
+):
+    """根据日期范围获取任务摘要"""
+    try:
+        from datetime import datetime
+        
+        start_dt = None
+        end_dt = None
+        
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except Exception:
+                raise HTTPException(status_code=400, detail="开始日期格式错误")
+        
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except Exception:
+                raise HTTPException(status_code=400, detail="结束日期格式错误")
+        
+        summary_service = TaskSummaryService(db)
+        summaries = summary_service.generate_summary_by_date_range(
+            start_date=start_dt,
+            end_date=end_dt,
+            status=status
+        )
+        
+        return summaries
+        
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -88,7 +88,8 @@ class FlightService:
                     scrape_time=scrape_time,  # 使用传入的scrape_time
                     source=source,
                     raw_data=str(flight_data),
-                    notes=flight_data.get('notes', '')
+                    notes=flight_data.get('notes', ''),
+                    field_sources=flight_data.get('field_sources', None)  # 字段来源标识
                 )
                 
                 # 验证task_id是否正确设置

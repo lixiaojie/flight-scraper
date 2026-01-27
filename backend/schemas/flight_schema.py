@@ -37,6 +37,7 @@ class FlightResultResponse(BaseModel):
     source: str
     status: str
     notes: Optional[str] = None
+    field_sources: Optional[str] = None  # 字段来源标识（JSON格式）
 
     class Config:
         from_attributes = True

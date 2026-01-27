@@ -37,6 +37,7 @@ interface FlightResult {
   source: string;
   status: string;
   notes?: string;
+  field_sources?: string;  // 字段来源标识（JSON格式）
 }
 
 interface FlightStatistics {
@@ -292,6 +293,22 @@ const FlightResults: React.FC = () => {
     return colors[airline as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };
 
+  // 解析字段来源，判断哪些字段来自OCR
+  const getOcrFields = (fieldSources?: string): Set<string> => {
+    if (!fieldSources) return new Set();
+    try {
+      const sources = JSON.parse(fieldSources);
+      return new Set(Object.keys(sources).filter(field => sources[field] === 'ocr'));
+    } catch {
+      return new Set();
+    }
+  };
+
+  // 判断字段是否来自OCR
+  const isOcrField = (field: string, ocrFields: Set<string>): boolean => {
+    return ocrFields.has(field);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 紧凑的头部 */}
@@ -327,7 +344,7 @@ const FlightResults: React.FC = () => {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-4">
+      <div className="container mx-auto px-4 py-4 max-w-7xl">
         {/* 紧凑的筛选器 */}
         <Card className="mb-4">
           <CardContent className="p-4">
@@ -602,7 +619,21 @@ const FlightResults: React.FC = () => {
                 );
               }
 
-              return Object.entries(groupedFlights).map(([taskId, taskFlights]) => (
+              // 按任务编号倒序排列（数字任务ID在前，未分类在后）
+              const sortedTaskEntries = Object.entries(groupedFlights).sort(([a], [b]) => {
+                // 如果都是数字，按数字倒序排列
+                const aNum = a === '未分类' ? -1 : parseInt(a, 10);
+                const bNum = b === '未分类' ? -1 : parseInt(b, 10);
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                  return bNum - aNum; // 倒序：大的在前
+                }
+                // 如果一个是未分类，未分类排在最后
+                if (a === '未分类') return 1;
+                if (b === '未分类') return -1;
+                return 0;
+              });
+
+              return sortedTaskEntries.map(([taskId, taskFlights]) => (
                 <div key={taskId} className="space-y-2">
                   {/* 任务标题 */}
                   <div className="flex items-center justify-between bg-blue-50 border-2 border-blue-300 px-4 py-3 rounded-lg mb-2 shadow-sm">
@@ -632,176 +663,180 @@ const FlightResults: React.FC = () => {
                     </div>
                   </div>
                   
-                  {/* 该任务的航班列表 */}
-                  <div className="space-y-2">
-                    {taskFlights.map((flight) => (
+                  {/* 该任务的航班列表 - 响应式网格布局 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                    {taskFlights.map((flight) => {
+                      // 解析OCR字段
+                      const ocrFields = getOcrFields(flight.field_sources);
+                      
+                      return (
               <Card 
                 key={flight.id} 
-                className={`hover:shadow-md transition-all duration-200 border-l-4 ${
+                className={`hover:shadow-lg transition-all duration-200 border-l-4 ${
                   selectedFlights.includes(flight.id) 
-                    ? 'border-l-green-500 bg-green-50' 
-                    : 'border-l-blue-500'
+                    ? 'border-l-green-500 bg-green-50 shadow-md' 
+                    : 'border-l-blue-500 bg-white'
                 } ${viewMode === 'compare' ? 'cursor-pointer' : ''}`}
                 onClick={() => viewMode === 'compare' && toggleFlightSelection(flight.id)}
               >
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    {/* 左侧：航班信息 */}
+                  {/* 顶部：航班基本信息和价格 */}
+                  <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
-                      <div className="flex items-center space-x-4 mb-3">
-                        {/* 任务编号 - 优先显示 */}
-                        {flight.task_id != null && flight.task_id !== undefined && (
-                          <Badge className="text-xs px-2 py-1 bg-blue-600 text-white font-bold border-2 border-blue-700">
-                            任务 #{flight.task_id}
-                          </Badge>
-                        )}
-                        
-                        {/* 航空公司 */}
-                        <Badge className={`${getAirlineColor(flight.airline)} text-xs px-2 py-1`}>
+                      {/* 航空公司、航班号、机型 */}
+                      <div className="flex items-center flex-wrap gap-2 mb-2">
+                        <Badge className={`${getAirlineColor(flight.airline)} text-xs px-2 py-1 font-semibold`}>
                           {flight.airline}
                         </Badge>
-                        
-                        {/* 航班号 */}
-                        <span className="font-mono font-bold text-lg">{flight.flight_number}</span>
-                        
-                        {/* 机型 */}
+                        <span className="font-mono font-bold text-lg text-gray-900">{flight.flight_number}</span>
                         {flight.aircraft_type && (
-                          <span className="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                          <span className={`text-xs px-2 py-0.5 rounded border flex items-center gap-1 ${isOcrField('aircraft_type', ocrFields) ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-gray-600 bg-gray-100 border-gray-200'}`}>
                             {flight.aircraft_type}
+                            {isOcrField('aircraft_type', ocrFields) && (
+                              <span className="text-xs" title="此字段来自OCR识别">📸</span>
+                            )}
                           </span>
-                        )}
-                        
-                        {/* 共享航班标识 */}
-                        {flight.is_shared_flight === '是' && (
-                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-300">共享航班</Badge>
-                        )}
-                        {/* 经停标识 */}
-                        {flight.has_stopover === '是' && (
-                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-300">
-                            经停 {flight.stopover_city || flight.stopover_airport || ''}
-                          </Badge>
                         )}
                       </div>
                       
-                      {/* 航班路线 */}
-                      <div className="flex items-center space-x-6">
-                        {/* 出发信息 */}
-                        <div className="text-center">
-                          <div className="text-xs text-gray-600 mb-1">
-                            {flight.departure_city || getAirportName(flight.departure_airport)}
-                          </div>
-                          <div className="text-2xl font-bold">{formatTime(flight.departure_time)}</div>
-                          <div className="text-xs text-gray-500">
-                            {flight.departure_airport}
-                            {flight.departure_terminal && ` ${flight.departure_terminal}`}
-                          </div>
-                          {flight.departure_date && (
-                            <div className="text-xs text-blue-600 font-medium mt-1">
-                              {formatDepartureDate(flight.departure_date)}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* 中间：飞行时间和经停信息 */}
-                        <div className="flex flex-col items-center">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-16 h-px bg-gray-300"></div>
-                            <Plane className="h-4 w-4 text-gray-400" />
-                            <div className="w-16 h-px bg-gray-300"></div>
-                          </div>
-                          <div className="text-sm font-medium text-gray-700 mt-1">
-                            {flight.flight_duration || (flight.departure_time && flight.arrival_time ? calculateFlightDuration(flight.departure_time, flight.arrival_time) : '')}
-                          </div>
-                          {flight.has_stopover === '是' && (
-                            <div className="text-xs text-orange-600 mt-1 font-semibold">
-                              ⚠️ 经停 {flight.stopover_city || flight.stopover_airport || '未知城市'}
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* 到达信息 */}
-                        <div className="text-center">
-                          <div className="text-xs text-gray-600 mb-1">
-                            {flight.arrival_city || getAirportName(flight.arrival_airport)}
-                          </div>
-                          <div className="text-2xl font-bold">{formatTime(flight.arrival_time)}</div>
-                          <div className="text-xs text-gray-500">
-                            {flight.arrival_airport}
-                            {flight.arrival_terminal && ` ${flight.arrival_terminal}`}
-                          </div>
-                        </div>
+                      {/* 特殊标识 */}
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        {flight.departure_date && (
+                          <span className="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            {formatDepartureDate(flight.departure_date)}
+                          </span>
+                        )}
+                        {flight.is_shared_flight === '是' && (
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-300 font-medium px-1.5 py-0.5">
+                            共享
+                          </Badge>
+                        )}
+                        {flight.has_stopover === '是' && (
+                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-300 font-medium px-1.5 py-0.5">
+                            经停
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     
-                    {/* 右侧：价格和操作 */}
-                    <div className="text-right ml-6">
-                      <div className="mb-2">
-                        <div className="text-3xl font-bold text-green-600">
+                    {/* 价格区域 */}
+                    <div className="text-right ml-3 flex-shrink-0">
+                      <div className="flex items-baseline justify-end gap-1 mb-1">
+                        {flight.original_price && flight.original_price > flight.price && (
+                          <span className="text-xs text-gray-400 line-through">
+                            {formatPrice(flight.original_price)}
+                          </span>
+                        )}
+                        <div className="text-2xl font-bold text-green-600">
                           {formatPrice(flight.price)}
                         </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
                         {flight.discount_rate && (
-                          <div className="text-xs text-orange-600 font-medium mt-1">
-                            {flight.discount_rate}
-                          </div>
-                        )}
-                        {flight.original_price && flight.original_price > flight.price && (
-                          <div className="text-sm text-gray-500 line-through">
-                            原价 {formatPrice(flight.original_price)}
-                          </div>
-                        )}
-                        {flight.cabin_class && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {flight.cabin_class}
-                          </div>
-                        )}
-                        {flight.discount_rate && (
-                          <Badge variant="destructive" className="text-xs mt-1">
+                          <Badge variant="destructive" className="text-xs px-1.5 py-0.5 bg-orange-500 hover:bg-orange-600">
                             {flight.discount_rate}
                           </Badge>
                         )}
+                        {flight.cabin_class && (
+                          <span className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+                            {flight.cabin_class}
+                          </span>
+                        )}
                       </div>
-                      
-                      {viewMode === 'compare' ? (
-                        <Button 
-                          className={`w-full ${
-                            selectedFlights.includes(flight.id)
-                              ? 'bg-green-600 hover:bg-green-700 text-white'
-                              : 'bg-blue-600 hover:bg-blue-700 text-white'
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFlightSelection(flight.id);
-                          }}
-                        >
-                          {selectedFlights.includes(flight.id) ? '已选择' : '选择对比'}
-                        </Button>
-                      ) : (
-                        <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-                          选择
-                        </Button>
-                      )}
                     </div>
                   </div>
                   
-                  {/* 底部：详细信息标签 */}
-                  <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-gray-100">
-                    <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
-                      {flight.cabin_class || '经济舱'}
-                    </span>
-                    {flight.discount_rate && (
-                      <Badge variant="destructive" className="text-xs">
-                        {flight.discount_rate}
-                      </Badge>
+                  {/* 航班路线 - 紧凑布局 */}
+                  <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mb-3">
+                    <div className="flex items-center justify-between">
+                      {/* 出发信息 */}
+                      <div className="flex-1 text-center">
+                        <div className="text-xs text-gray-500 mb-1 font-medium">
+                          {flight.departure_city || getAirportName(flight.departure_airport)}
+                        </div>
+                        <div className="text-2xl font-bold text-gray-900 mb-0.5">{formatTime(flight.departure_time)}</div>
+                        <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
+                          <span className={isOcrField('departure_airport', ocrFields) ? 'text-amber-600 font-semibold' : ''}>
+                            {flight.departure_airport || '—'}
+                          </span>
+                          {isOcrField('departure_airport', ocrFields) && (
+                            <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
+                          )}
+                          {flight.departure_terminal && (
+                            <span className={`ml-1 font-medium ${isOcrField('departure_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
+                              {flight.departure_terminal}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* 中间：飞行路线和时间 */}
+                      <div className="flex flex-col items-center px-3">
+                        <div className="flex items-center space-x-0.5 mb-1">
+                          <div className="w-8 h-0.5 bg-blue-400"></div>
+                          <Plane className="h-4 w-4 text-blue-500" />
+                          <div className="w-8 h-0.5 bg-blue-400"></div>
+                        </div>
+                        <div className={`text-xs font-semibold bg-white px-1.5 py-0.5 rounded border ${isOcrField('flight_duration', ocrFields) ? 'text-amber-700 border-amber-300' : 'text-gray-700 border-gray-200'} flex items-center gap-1`}>
+                          {flight.flight_duration || (flight.departure_time && flight.arrival_time ? calculateFlightDuration(flight.departure_time, flight.arrival_time) : '')}
+                          {isOcrField('flight_duration', ocrFields) && (
+                            <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* 到达信息 */}
+                      <div className="flex-1 text-center">
+                        <div className="text-xs text-gray-500 mb-1 font-medium">
+                          {flight.arrival_city || getAirportName(flight.arrival_airport)}
+                        </div>
+                        <div className="text-2xl font-bold text-gray-900 mb-0.5">{formatTime(flight.arrival_time)}</div>
+                        <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
+                          <span className={isOcrField('arrival_airport', ocrFields) ? 'text-amber-600 font-semibold' : ''}>
+                            {flight.arrival_airport || '—'}
+                          </span>
+                          {isOcrField('arrival_airport', ocrFields) && (
+                            <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
+                          )}
+                          {flight.arrival_terminal && (
+                            <span className={`ml-1 font-medium ${isOcrField('arrival_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
+                              {flight.arrival_terminal}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* 操作按钮 */}
+                  <div className="mb-3">
+                    {viewMode === 'compare' ? (
+                      <Button 
+                        className={`w-full ${
+                          selectedFlights.includes(flight.id)
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFlightSelection(flight.id);
+                        }}
+                      >
+                        {selectedFlights.includes(flight.id) ? '已选择' : '选择对比'}
+                      </Button>
+                    ) : (
+                      <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                        选择
+                      </Button>
                     )}
-                    {flight.has_stopover === '是' && (
-                      <span className="text-xs bg-orange-100 text-orange-800 font-semibold px-3 py-1.5 rounded-md border border-orange-300">
-                        ⚠️ 经停: {flight.stopover_city || flight.stopover_airport || '未知城市'}
-                      </span>
-                    )}
-                    {/* 任务编号 - 始终显示，可点击查询 */}
+                  </div>
+                  
+                  {/* 底部：元数据信息（次要信息） */}
+                  <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-200">
+                    {/* 任务编号 - 可点击查询 */}
                     {flight.task_id != null && flight.task_id !== undefined ? (
                       <span 
-                        className="text-sm bg-blue-600 text-white font-bold px-4 py-2 rounded-md border-2 border-blue-700 shadow-md cursor-pointer hover:bg-blue-700"
+                        className="text-xs bg-blue-600 text-white font-semibold px-3 py-1 rounded-md cursor-pointer hover:bg-blue-700 transition-colors"
                         onClick={() => {
                           setSearchParams({...searchParams, taskId: String(flight.task_id)});
                           handleSearch();
@@ -811,28 +846,31 @@ const FlightResults: React.FC = () => {
                         任务 #{flight.task_id}
                       </span>
                     ) : (
-                      <span className="text-xs bg-gray-200 text-gray-700 font-medium px-3 py-1.5 rounded-md border border-gray-400">
+                      <span className="text-xs bg-gray-200 text-gray-600 font-medium px-3 py-1 rounded-md">
                         未分类
                       </span>
                     )}
-                    <span className="text-xs text-gray-600 font-medium">
-                      抓取时间: {new Date(flight.scrape_time).toLocaleString('zh-CN', {
+                    
+                    {/* 数据源和时间 */}
+                    <span className="text-xs text-gray-500">
+                      {flight.source}
+                    </span>
+                    <span className="text-xs text-gray-500">•</span>
+                    <span className="text-xs text-gray-500">
+                      {new Date(flight.scrape_time).toLocaleString('zh-CN', {
                         timeZone: 'Asia/Shanghai',
                         year: 'numeric',
                         month: '2-digit',
                         day: '2-digit',
                         hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
+                        minute: '2-digit'
                       })}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {flight.source}
                     </span>
                   </div>
                 </CardContent>
               </Card>
-                    ))}
+                    );
+                    })}
                   </div>
                 </div>
               ));

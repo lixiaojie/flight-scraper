@@ -54,6 +54,7 @@ class FlightResult(Base):
     # 额外信息
     raw_data = Column(Text, comment='原始数据')
     notes = Column(Text, comment='备注')
+    field_sources = Column(Text, nullable=True, comment='字段来源标识（JSON格式，标识哪些字段来自OCR）')
 
     # 索引
     __table_args__ = (
@@ -98,4 +99,5 @@ class FlightResult(Base):
             'scrape_time': self.scrape_time.isoformat() if self.scrape_time else None,
             'source': self.source,
             'status': self.status,
-            'notes': self.notes}
+            'notes': self.notes,
+            'field_sources': getattr(self, 'field_sources', None)}

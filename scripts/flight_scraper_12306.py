@@ -1067,6 +1067,16 @@ class FlightScraper12306:
             self.set_task_id(task_id)
         
         try:
+            # 步骤1: 检查并安装12306应用（在连接设备之前，因为需要adb命令）
+            try:
+                from utils import check_and_install_12306_app
+                if not check_and_install_12306_app():
+                    tprint("❌ 12306应用检查/安装失败，无法继续")
+                    return False
+            except Exception as e:
+                tprint(f"⚠️ 检查/安装12306应用时出错: {e}")
+                tprint("⚠️ 继续执行，假设应用已安装...")
+            
             # 初始化驱动（使用拆分后的连接模块）
             print("🔌 使用模块化设备连接...")
             self.driver = connect_device()

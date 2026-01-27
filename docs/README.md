@@ -114,6 +114,11 @@ docker-compose exec [service_name] bash
 
 - [Flight Scraper 指南](./Flight_Scraper_Guide.md)
 - [航班结果系统指南](./Flight_Results_System_Guide.md)
+- [开发环境指南](./DEVELOPMENT.md)
+- [Docker 使用说明](./DOCKER_USAGE.md)
+- [Appium 安装指南](./APPIUM_INSTALL_GUIDE.md)
+- [Appium Inspector 指南](./Appium_Inspector_Guide.md)
+- [城市选择优化说明](./CITY_SELECTION_IMPROVEMENT.md)
 - [性能优化](./PERFORMANCE_OPTIMIZATION.md)
 - [OCR 集成](./OCR_INTEGRATION_AND_OPTIMIZATION.md)
 - 其他排障与总结类文档请见 `docs/` 目录

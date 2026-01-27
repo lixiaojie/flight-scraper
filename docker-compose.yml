@@ -12,11 +12,18 @@ services:
       - DATABASE_URL=sqlite:///./flight_scraper.db
       - DATABASE_LOCATION=root
       - SCRAPER_CONFIG_PATH=/app/scripts/config/scraper.config.json
+      - ANDROID_ADB_SERVER_HOST=host.docker.internal
+      - ANDROID_ADB_SERVER_PORT=5037
+      - ADB_HOST=host.docker.internal
+      - ADB_PORT=5037
     volumes:
       - ./data:/app/data
       - ./backend:/app
       - ./scripts:/app/scripts
       - ./results:/app/results
+      - ./assets:/app/assets
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - app-network
     healthcheck:
@@ -85,6 +92,7 @@ services:
     volumes:
       - ./scripts:/app/scripts
       - ./results:/app/results
+      - ./assets:/app/assets
     networks:
       - app-network
     profiles:

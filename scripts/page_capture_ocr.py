@@ -112,10 +112,10 @@ def smart_scroll_and_capture_ocr(
     # 查找可滚动元素
     scrollable_info = find_scrollable_list(driver)
 
-    # 滚动到顶部
-    print("📍 滚动到页面顶部...")
-    scroll_to_top(driver)
-    time.sleep(1.0)  # 优化：减少等待时间
+    # 去掉首次下拉滑动，直接开始向上滑动加载内容
+    # print("📍 滚动到页面顶部...")
+    # scroll_to_top(driver)
+    # time.sleep(1.0)
 
     # 存储所有航班、OCR文本和截图路径
     all_flights = set()
@@ -123,7 +123,7 @@ def smart_scroll_and_capture_ocr(
     screenshot_paths = []
     scroll_count = 0
     no_new_content_count = 0
-    max_no_new_content = 5  # 连续5次无新内容则停止（增加容错）
+    max_no_new_content = 2  # 连续2次无新内容则停止（优化：减少等待时间）
 
     os.makedirs(output_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
