@@ -313,30 +313,30 @@ const FlightResults: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       {/* 紧凑的头部 */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-3">
+        <div className="container mx-auto px-4 py-2">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">航班查询结果</h1>
-              <p className="text-sm text-gray-600">实时航班信息，按价格从低到高排列</p>
+              <h1 className="text-lg font-bold text-gray-900">航班查询结果</h1>
+              <p className="text-xs text-gray-600">实时航班信息，按价格从低到高排列</p>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
               {statistics && (
-                <div className="flex items-center space-x-6 text-sm">
+                <div className="flex items-center space-x-4 text-xs">
                   <div className="flex items-center space-x-1">
-                    <Plane className="h-4 w-4 text-blue-600" />
+                    <Plane className="h-3 w-3 text-blue-600" />
                     <span className="text-gray-600">共</span>
                     <span className="font-semibold text-blue-600">{statistics.total_flights}</span>
                     <span className="text-gray-600">班</span>
                   </div>
                   <div className="flex items-center space-x-1">
-                    <DollarSign className="h-4 w-4 text-green-600" />
+                    <DollarSign className="h-3 w-3 text-green-600" />
                     <span className="text-gray-600">最低</span>
                     <span className="font-semibold text-green-600">{formatPrice(statistics.min_price)}</span>
                   </div>
                 </div>
               )}
-              <Button variant="outline" size="sm" onClick={fetchFlights} className="flex items-center">
-                <RefreshCw className="h-4 w-4 mr-1" />
+              <Button variant="outline" size="sm" onClick={fetchFlights} className="flex items-center text-xs h-7 px-2">
+                <RefreshCw className="h-3 w-3 mr-1" />
                 刷新
               </Button>
             </div>
@@ -344,75 +344,75 @@ const FlightResults: React.FC = () => {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-4 max-w-7xl">
+      <div className="container mx-auto px-4 py-1 max-w-7xl">
         {/* 紧凑的筛选器 */}
-        <Card className="mb-4">
-          <CardContent className="p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">价格范围:</Label>
+        <Card className="mb-2">
+          <CardContent className="p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">价格:</Label>
                 <Input
                   type="number"
                   placeholder="最低"
                   value={searchParams.minPrice}
                   onChange={(e) => setSearchParams({...searchParams, minPrice: e.target.value})}
-                  className="w-20 h-8 text-sm"
+                  className="w-18 h-7 text-xs"
                 />
-                <span className="text-gray-500">-</span>
+                <span className="text-gray-500 text-xs">-</span>
                 <Input
                   type="number"
                   placeholder="最高"
                   value={searchParams.maxPrice}
                   onChange={(e) => setSearchParams({...searchParams, maxPrice: e.target.value})}
-                  className="w-20 h-8 text-sm"
+                  className="w-18 h-7 text-xs"
                 />
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">航空公司:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">航司:</Label>
                 <Input
-                  placeholder="输入航空公司"
+                  placeholder="航空公司"
                   value={searchParams.airline}
                   onChange={(e) => setSearchParams({...searchParams, airline: e.target.value})}
-                  className="w-32 h-8 text-sm"
+                  className="w-24 h-7 text-xs"
                 />
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">航班号:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">航班号:</Label>
                 <Input
-                  placeholder="如: CA1234"
+                  placeholder="CA1234"
                   value={searchParams.flightNumber}
                   onChange={(e) => setSearchParams({...searchParams, flightNumber: e.target.value})}
-                  className="w-28 h-8 text-sm"
+                  className="w-24 h-7 text-xs"
                 />
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">出发城市:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">出发:</Label>
                 <Input
-                  placeholder="如: 上海"
+                  placeholder="城市"
                   value={searchParams.departureCity}
                   onChange={(e) => setSearchParams({...searchParams, departureCity: e.target.value})}
-                  className="w-24 h-8 text-sm"
+                  className="w-20 h-7 text-xs"
                 />
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">到达城市:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">到达:</Label>
                 <Input
-                  placeholder="如: 北京"
+                  placeholder="城市"
                   value={searchParams.arrivalCity}
                   onChange={(e) => setSearchParams({...searchParams, arrivalCity: e.target.value})}
-                  className="w-24 h-8 text-sm"
+                  className="w-20 h-7 text-xs"
                 />
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">任务编号:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">任务:</Label>
                 <Input
                   type="number"
-                  placeholder="如: 209"
+                  placeholder="209"
                   value={searchParams.taskId}
                   onChange={(e) => setSearchParams({...searchParams, taskId: e.target.value})}
                   onKeyDown={(e) => {
@@ -420,26 +420,26 @@ const FlightResults: React.FC = () => {
                       handleSearch();
                     }
                   }}
-                  className="w-24 h-8 text-sm"
+                  className="w-20 h-7 text-xs"
                 />
                 {searchParams.taskId && (
                   <Button 
                     onClick={handleSearch} 
                     size="sm" 
-                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700"
+                    className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-xs"
                   >
                     查询
                   </Button>
                 )}
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">显示:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">显示:</Label>
                 <Select
                   value={searchParams.limit.toString()}
                   onValueChange={(value: string) => setSearchParams({...searchParams, limit: parseInt(value)})}
                 >
-                  <SelectTrigger className="w-20 h-8 text-sm">
+                  <SelectTrigger className="w-16 h-7 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -451,13 +451,13 @@ const FlightResults: React.FC = () => {
                 </Select>
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium text-gray-700">排序:</Label>
+              <div className="flex items-center space-x-1.5">
+                <Label className="text-xs font-medium text-gray-700">排序:</Label>
                 <Select
                   value={sortBy}
                   onValueChange={(value: 'price' | 'time') => setSortBy(value)}
                 >
-                  <SelectTrigger className="w-24 h-8 text-sm">
+                  <SelectTrigger className="w-20 h-7 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -467,23 +467,23 @@ const FlightResults: React.FC = () => {
                 </Select>
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Button onClick={handleSearch} size="sm" className="h-8">
-                  <Search className="h-4 w-4 mr-1" />
+              <div className="flex items-center space-x-1.5">
+                <Button onClick={handleSearch} size="sm" className="h-7 px-2 text-xs">
+                  <Search className="h-3 w-3 mr-1" />
                   搜索
                 </Button>
-                <Button variant="outline" onClick={handleReset} size="sm" className="h-8">
+                <Button variant="outline" onClick={handleReset} size="sm" className="h-7 px-2 text-xs">
                   重置
                 </Button>
               </div>
               
               {/* 视图模式切换 */}
-              <div className="flex items-center space-x-2 ml-4">
+              <div className="flex items-center space-x-1.5 ml-2">
                 <Button
                   variant={viewMode === 'list' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setViewMode('list')}
-                  className="h-8"
+                  className="h-7 px-2 text-xs"
                 >
                   列表
                 </Button>
@@ -491,7 +491,7 @@ const FlightResults: React.FC = () => {
                   variant={viewMode === 'compare' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setViewMode('compare')}
-                  className="h-8"
+                  className="h-7 px-2 text-xs"
                 >
                   对比
                 </Button>
@@ -499,11 +499,11 @@ const FlightResults: React.FC = () => {
               
               {/* 选择状态 */}
               {selectedFlights.length > 0 && (
-                <div className="flex items-center space-x-2 ml-4">
-                  <span className="text-sm text-gray-600">
-                    已选择 {selectedFlights.length} 个航班
+                <div className="flex items-center space-x-1.5 ml-2">
+                  <span className="text-xs text-gray-600">
+                    已选 {selectedFlights.length}
                   </span>
-                  <Button variant="outline" size="sm" onClick={clearSelection} className="h-8">
+                  <Button variant="outline" size="sm" onClick={clearSelection} className="h-7 px-2 text-xs">
                     清除
                   </Button>
                 </div>
@@ -514,34 +514,34 @@ const FlightResults: React.FC = () => {
 
         {/* 对比视图 */}
         {viewMode === 'compare' && selectedFlights.length > 0 && (
-          <Card className="mb-4 bg-blue-50 border-blue-200">
-            <CardContent className="p-4">
-              <h3 className="text-lg font-semibold text-blue-900 mb-3">航班对比</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Card className="mb-3 bg-blue-50 border-blue-200">
+            <CardContent className="p-3">
+              <h3 className="text-base font-semibold text-blue-900 mb-2">航班对比</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {selectedFlights.map(flightId => {
                   const flight = flights.find(f => f.id === flightId);
                   if (!flight) return null;
                   
                   return (
-                    <div key={flightId} className="bg-white p-3 rounded-lg border">
-                      <div className="flex justify-between items-start mb-2">
+                    <div key={flightId} className="bg-white p-2 rounded-lg border">
+                      <div className="flex justify-between items-start mb-1.5">
                         <div>
-                          <Badge className={`${getAirlineColor(flight.airline)} text-xs`}>
+                          <Badge className={`${getAirlineColor(flight.airline)} text-xs px-1.5 py-0.5`}>
                             {flight.airline}
                           </Badge>
-                          <span className="ml-2 font-mono text-sm">{flight.flight_number}</span>
+                          <span className="ml-1.5 font-mono text-xs">{flight.flight_number}</span>
                         </div>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => toggleFlightSelection(flightId)}
-                          className="h-6 w-6 p-0"
+                          className="h-5 w-5 p-0 text-xs"
                         >
                           ×
                         </Button>
                       </div>
                       <div className="text-center">
-                        <div className="text-lg font-bold text-green-600">
+                        <div className="text-base font-bold text-green-600">
                           {formatPrice(flight.price)}
                         </div>
                         <div className="text-xs text-gray-600">
@@ -560,18 +560,18 @@ const FlightResults: React.FC = () => {
         )}
 
         {/* 航班列表 - 按任务分组显示 */}
-        <div className="space-y-4">
+        <div className="space-y-2">
           {loading ? (
-            <div className="text-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-              <p className="text-gray-600">正在加载航班信息...</p>
+            <div className="text-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-blue-600" />
+              <p className="text-sm text-gray-600">正在加载航班信息...</p>
             </div>
           ) : flights.length === 0 ? (
             <Card className="border-dashed">
-              <CardContent className="p-12 text-center">
-                <Plane className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">暂无航班数据</h3>
-                <p className="text-gray-500">请尝试调整搜索条件或稍后再试</p>
+              <CardContent className="p-8 text-center">
+                <Plane className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                <h3 className="text-base font-medium text-gray-900 mb-1">暂无航班数据</h3>
+                <p className="text-xs text-gray-500">请尝试调整搜索条件或稍后再试</p>
               </CardContent>
             </Card>
           ) : (
@@ -606,10 +606,10 @@ const FlightResults: React.FC = () => {
               if (Object.keys(groupedFlights).length === 0) {
                 return (
                   <Card className="border-dashed">
-                    <CardContent className="p-12 text-center">
-                      <Plane className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">暂无航班数据</h3>
-                      <p className="text-gray-500">
+                    <CardContent className="p-8 text-center">
+                      <Plane className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                      <h3 className="text-base font-medium text-gray-900 mb-1">暂无航班数据</h3>
+                      <p className="text-xs text-gray-500">
                         {hasTaskIdFilter 
                           ? `未找到任务编号 ${searchParams.taskId} 的航班数据，请尝试调整搜索条件或稍后再试`
                           : '请尝试调整搜索条件或稍后再试'}
@@ -634,20 +634,20 @@ const FlightResults: React.FC = () => {
               });
 
               return sortedTaskEntries.map(([taskId, taskFlights]) => (
-                <div key={taskId} className="space-y-2">
+                <div key={taskId} className="space-y-1.5">
                   {/* 任务标题 */}
-                  <div className="flex items-center justify-between bg-blue-50 border-2 border-blue-300 px-4 py-3 rounded-lg mb-2 shadow-sm">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-lg font-bold text-blue-800 bg-blue-100 px-3 py-1 rounded-md border border-blue-300">
+                  <div className="flex items-center justify-between bg-blue-50 border border-blue-300 px-3 py-1.5 rounded mb-1.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded border border-blue-300">
                         {taskId === '未分类' ? '未分类航班' : `任务 #${taskId}`}
                       </span>
-                      <span className="text-sm text-blue-700 font-semibold">
+                      <span className="text-xs text-blue-700 font-semibold">
                         {taskFlights.length} 个航班
                       </span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-gray-600 font-medium">抓取时间:</span>
-                      <span className="text-xs text-gray-700 font-semibold">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs text-gray-600">抓取:</span>
+                      <span className="text-xs text-gray-700 font-medium">
                         {taskFlights[0]?.scrape_time && 
                           new Date(taskFlights[0].scrape_time).toLocaleString('zh-CN', {
                             timeZone: 'Asia/Shanghai',
@@ -655,8 +655,7 @@ const FlightResults: React.FC = () => {
                             month: '2-digit',
                             day: '2-digit',
                             hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit'
+                            minute: '2-digit'
                           })
                         }
                       </span>
@@ -664,7 +663,7 @@ const FlightResults: React.FC = () => {
                   </div>
                   
                   {/* 该任务的航班列表 - 响应式网格布局 */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2">
                     {taskFlights.map((flight) => {
                       // 解析OCR字段
                       const ocrFields = getOcrFields(flight.field_sources);
@@ -672,25 +671,25 @@ const FlightResults: React.FC = () => {
                       return (
               <Card 
                 key={flight.id} 
-                className={`hover:shadow-lg transition-all duration-200 border-l-4 ${
+                className={`hover:shadow-md transition-all duration-200 border-l-2 ${
                   selectedFlights.includes(flight.id) 
-                    ? 'border-l-green-500 bg-green-50 shadow-md' 
+                    ? 'border-l-green-500 bg-green-50 shadow-sm' 
                     : 'border-l-blue-500 bg-white'
                 } ${viewMode === 'compare' ? 'cursor-pointer' : ''}`}
                 onClick={() => viewMode === 'compare' && toggleFlightSelection(flight.id)}
               >
-                <CardContent className="p-4">
+                <CardContent className="p-3">
                   {/* 顶部：航班基本信息和价格 */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1 min-w-0">
                       {/* 航空公司、航班号、机型 */}
-                      <div className="flex items-center flex-wrap gap-2 mb-2">
-                        <Badge className={`${getAirlineColor(flight.airline)} text-xs px-2 py-1 font-semibold`}>
+                      <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                        <Badge className={`${getAirlineColor(flight.airline)} text-xs px-1.5 py-0.5 font-semibold`}>
                           {flight.airline}
                         </Badge>
-                        <span className="font-mono font-bold text-lg text-gray-900">{flight.flight_number}</span>
+                        <span className="font-mono font-bold text-base text-gray-900">{flight.flight_number}</span>
                         {flight.aircraft_type && (
-                          <span className={`text-xs px-2 py-0.5 rounded border flex items-center gap-1 ${isOcrField('aircraft_type', ocrFields) ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-gray-600 bg-gray-100 border-gray-200'}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${isOcrField('aircraft_type', ocrFields) ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-gray-600 bg-gray-100 border-gray-200'}`}>
                             {flight.aircraft_type}
                             {isOcrField('aircraft_type', ocrFields) && (
                               <span className="text-xs" title="此字段来自OCR识别">📸</span>
@@ -700,19 +699,19 @@ const FlightResults: React.FC = () => {
                       </div>
                       
                       {/* 特殊标识 */}
-                      <div className="flex items-center flex-wrap gap-1.5">
+                      <div className="flex items-center flex-wrap gap-1">
                         {flight.departure_date && (
-                          <span className="text-xs text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          <span className="text-xs text-blue-600 font-medium bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                             {formatDepartureDate(flight.departure_date)}
                           </span>
                         )}
                         {flight.is_shared_flight === '是' && (
-                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-300 font-medium px-1.5 py-0.5">
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-300 font-medium px-1 py-0.5">
                             共享
                           </Badge>
                         )}
                         {flight.has_stopover === '是' && (
-                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-300 font-medium px-1.5 py-0.5">
+                          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-300 font-medium px-1 py-0.5">
                             经停
                           </Badge>
                         )}
@@ -720,25 +719,25 @@ const FlightResults: React.FC = () => {
                     </div>
                     
                     {/* 价格区域 */}
-                    <div className="text-right ml-3 flex-shrink-0">
-                      <div className="flex items-baseline justify-end gap-1 mb-1">
+                    <div className="text-right ml-2 flex-shrink-0">
+                      <div className="flex items-baseline justify-end gap-1 mb-0.5">
                         {flight.original_price && flight.original_price > flight.price && (
                           <span className="text-xs text-gray-400 line-through">
                             {formatPrice(flight.original_price)}
                           </span>
                         )}
-                        <div className="text-2xl font-bold text-green-600">
+                        <div className="text-xl font-bold text-green-600">
                           {formatPrice(flight.price)}
                         </div>
                       </div>
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
                         {flight.discount_rate && (
-                          <Badge variant="destructive" className="text-xs px-1.5 py-0.5 bg-orange-500 hover:bg-orange-600">
+                          <Badge variant="destructive" className="text-xs px-1 py-0.5 bg-orange-500 hover:bg-orange-600">
                             {flight.discount_rate}
                           </Badge>
                         )}
                         {flight.cabin_class && (
-                          <span className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+                          <span className="text-xs text-gray-600 bg-gray-100 px-1 py-0.5 rounded">
                             {flight.cabin_class}
                           </span>
                         )}
@@ -747,15 +746,15 @@ const FlightResults: React.FC = () => {
                   </div>
                   
                   {/* 航班路线 - 紧凑布局 */}
-                  <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mb-3">
+                  <div className="bg-gray-50 rounded-lg p-2 border border-gray-200 mb-2">
                     <div className="flex items-center justify-between">
                       {/* 出发信息 */}
                       <div className="flex-1 text-center">
-                        <div className="text-xs text-gray-500 mb-1 font-medium">
+                        <div className="text-xs text-gray-500 mb-0.5 font-medium">
                           {flight.departure_city || getAirportName(flight.departure_airport)}
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 mb-0.5">{formatTime(flight.departure_time)}</div>
-                        <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
+                        <div className="text-xl font-bold text-gray-900 mb-0.5">{formatTime(flight.departure_time)}</div>
+                        <div className="text-xs text-gray-600 flex items-center justify-center gap-0.5">
                           <span className={isOcrField('departure_airport', ocrFields) ? 'text-amber-600 font-semibold' : ''}>
                             {flight.departure_airport || '—'}
                           </span>
@@ -763,7 +762,7 @@ const FlightResults: React.FC = () => {
                             <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
                           )}
                           {flight.departure_terminal && (
-                            <span className={`ml-1 font-medium ${isOcrField('departure_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
+                            <span className={`ml-0.5 font-medium ${isOcrField('departure_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
                               {flight.departure_terminal}
                             </span>
                           )}
@@ -771,13 +770,13 @@ const FlightResults: React.FC = () => {
                       </div>
                       
                       {/* 中间：飞行路线和时间 */}
-                      <div className="flex flex-col items-center px-3">
-                        <div className="flex items-center space-x-0.5 mb-1">
-                          <div className="w-8 h-0.5 bg-blue-400"></div>
-                          <Plane className="h-4 w-4 text-blue-500" />
-                          <div className="w-8 h-0.5 bg-blue-400"></div>
+                      <div className="flex flex-col items-center px-2">
+                        <div className="flex items-center space-x-0.5 mb-0.5">
+                          <div className="w-6 h-0.5 bg-blue-400"></div>
+                          <Plane className="h-3 w-3 text-blue-500" />
+                          <div className="w-6 h-0.5 bg-blue-400"></div>
                         </div>
-                        <div className={`text-xs font-semibold bg-white px-1.5 py-0.5 rounded border ${isOcrField('flight_duration', ocrFields) ? 'text-amber-700 border-amber-300' : 'text-gray-700 border-gray-200'} flex items-center gap-1`}>
+                        <div className={`text-xs font-semibold bg-white px-1 py-0.5 rounded border ${isOcrField('flight_duration', ocrFields) ? 'text-amber-700 border-amber-300' : 'text-gray-700 border-gray-200'} flex items-center gap-0.5`}>
                           {flight.flight_duration || (flight.departure_time && flight.arrival_time ? calculateFlightDuration(flight.departure_time, flight.arrival_time) : '')}
                           {isOcrField('flight_duration', ocrFields) && (
                             <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
@@ -787,11 +786,11 @@ const FlightResults: React.FC = () => {
                       
                       {/* 到达信息 */}
                       <div className="flex-1 text-center">
-                        <div className="text-xs text-gray-500 mb-1 font-medium">
+                        <div className="text-xs text-gray-500 mb-0.5 font-medium">
                           {flight.arrival_city || getAirportName(flight.arrival_airport)}
                         </div>
-                        <div className="text-2xl font-bold text-gray-900 mb-0.5">{formatTime(flight.arrival_time)}</div>
-                        <div className="text-xs text-gray-600 flex items-center justify-center gap-1">
+                        <div className="text-xl font-bold text-gray-900 mb-0.5">{formatTime(flight.arrival_time)}</div>
+                        <div className="text-xs text-gray-600 flex items-center justify-center gap-0.5">
                           <span className={isOcrField('arrival_airport', ocrFields) ? 'text-amber-600 font-semibold' : ''}>
                             {flight.arrival_airport || '—'}
                           </span>
@@ -799,7 +798,7 @@ const FlightResults: React.FC = () => {
                             <span className="text-xs text-amber-600" title="此字段来自OCR识别">📸</span>
                           )}
                           {flight.arrival_terminal && (
-                            <span className={`ml-1 font-medium ${isOcrField('arrival_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
+                            <span className={`ml-0.5 font-medium ${isOcrField('arrival_terminal', ocrFields) ? 'text-amber-600' : 'text-blue-600'}`}>
                               {flight.arrival_terminal}
                             </span>
                           )}
@@ -809,10 +808,11 @@ const FlightResults: React.FC = () => {
                   </div>
                   
                   {/* 操作按钮 */}
-                  <div className="mb-3">
+                  <div className="mb-2">
                     {viewMode === 'compare' ? (
                       <Button 
-                        className={`w-full ${
+                        size="sm"
+                        className={`w-full text-xs h-7 ${
                           selectedFlights.includes(flight.id)
                             ? 'bg-green-600 hover:bg-green-700 text-white'
                             : 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -825,18 +825,18 @@ const FlightResults: React.FC = () => {
                         {selectedFlights.includes(flight.id) ? '已选择' : '选择对比'}
                       </Button>
                     ) : (
-                      <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                      <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs h-7">
                         选择
                       </Button>
                     )}
                   </div>
                   
                   {/* 底部：元数据信息（次要信息） */}
-                  <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-gray-200">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-200">
                     {/* 任务编号 - 可点击查询 */}
                     {flight.task_id != null && flight.task_id !== undefined ? (
                       <span 
-                        className="text-xs bg-blue-600 text-white font-semibold px-3 py-1 rounded-md cursor-pointer hover:bg-blue-700 transition-colors"
+                        className="text-xs bg-blue-600 text-white font-semibold px-2 py-0.5 rounded cursor-pointer hover:bg-blue-700 transition-colors"
                         onClick={() => {
                           setSearchParams({...searchParams, taskId: String(flight.task_id)});
                           handleSearch();
@@ -846,7 +846,7 @@ const FlightResults: React.FC = () => {
                         任务 #{flight.task_id}
                       </span>
                     ) : (
-                      <span className="text-xs bg-gray-200 text-gray-600 font-medium px-3 py-1 rounded-md">
+                      <span className="text-xs bg-gray-200 text-gray-600 font-medium px-2 py-0.5 rounded">
                         未分类
                       </span>
                     )}

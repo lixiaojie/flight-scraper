@@ -44,6 +44,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
+@app.on_event("startup")
+def _startup_schedule_runner():
+    """启动定时/循环任务调度线程，使定时任务到点能执行"""
+    try:
+        import threading
+        from services.schedule_runner import _run_schedule_loop
+        t = threading.Thread(target=_run_schedule_loop, daemon=True, name="ScheduleRunner")
+        t.start()
+        print("✅ 定时/循环任务调度线程已启动")
+    except Exception as e:
+        print(f"⚠️ 启动定时调度线程失败: {e}")
+
+
 # 添加CORS中间件
 app.add_middleware(
     CORSMiddleware,
@@ -65,125 +79,41 @@ async def health_check():
     """健康检查"""
     return {"status": "healthy", "message": "服务正常运行"}
 
-# 移除重复的task-stats端点，使用task_router中的/stats端点
+# 注意：任务相关的路由已迁移到 api.endpoints.task_endpoints
+# 这里保留注释以避免路由冲突
+# 如果 router 导入失败，这些路由可以作为备用
+# 但正常情况下应该使用 router 中的路由
+
+# 注意：航班相关的路由已迁移到 api.endpoints.flight_endpoints
+# 这里保留注释以避免路由冲突
+# 如果 router 导入失败，这些路由可以作为备用
+# 但正常情况下应该使用 router 中的路由
+# @app.get("/api/flights")
+# async def get_flights(...)
+# @app.get("/api/flights/statistics")
+# async def get_flight_statistics(...)
+# @app.post("/api/flights/batch-save")
+# async def batch_save_flights(...)
 
 # 注册路由（仅在本地环境）
+try:
+    from api.endpoints.flight_endpoints import router as flight_router
+    HAS_FLIGHT_ROUTER = True
+except ImportError as e:
+    print(f"⚠️ 航班路由导入失败: {e}")
+    HAS_FLIGHT_ROUTER = False
+    flight_router = None
+
 if HAS_ROUTERS:
     print("✅ 注册路由...")
     app.include_router(task_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
     app.include_router(system_router, prefix="/api")
+    if HAS_FLIGHT_ROUTER and flight_router:
+        app.include_router(flight_router, prefix="/api")
     print("✅ 路由注册完成")
 else:
     print("❌ 路由未注册，HAS_ROUTERS=False")
-
-
-@app.get("/api/flights", response_model=List[FlightResultResponse])
-async def get_flights(
-    min_price: Optional[float] = None,
-    max_price: Optional[float] = None,
-    airline: Optional[str] = None,
-    limit: int = 50,
-    db: Session = Depends(get_db)
-):
-    """获取航班列表"""
-    try:
-        query = db.query(FlightResult).filter(FlightResult.status == 'active')
-
-        if min_price is not None:
-            query = query.filter(FlightResult.price >= min_price)
-        if max_price is not None:
-            query = query.filter(FlightResult.price <= max_price)
-        if airline:
-            query = query.filter(FlightResult.airline.like(f'%{airline}%'))
-
-        flights = query.order_by(FlightResult.price.asc()).limit(limit).all()
-
-        return [flight.to_dict() for flight in flights]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/flights/statistics", response_model=FlightStatisticsResponse)
-async def get_flight_statistics(db: Session = Depends(get_db)):
-    """获取航班统计信息"""
-    try:
-        total_flights = db.query(FlightResult).filter(
-            FlightResult.status == 'active').count()
-
-        if total_flights == 0:
-            return {
-                "total_flights": 0,
-                "min_price": 0,
-                "max_price": 0,
-                "avg_price": 0
-            }
-
-        min_price = db.query(FlightResult).filter(
-            FlightResult.status == 'active'
-        ).order_by(FlightResult.price.asc()).first()
-
-        max_price = db.query(FlightResult).filter(
-            FlightResult.status == 'active'
-        ).order_by(FlightResult.price.desc()).first()
-
-        # 计算平均价格
-        from sqlalchemy import func
-        avg_result = db.query(func.avg(FlightResult.price)).filter(
-            FlightResult.status == 'active'
-        ).scalar()
-
-        return {
-            "total_flights": total_flights,
-            "min_price": min_price.price if min_price else 0,
-            "max_price": max_price.price if max_price else 0,
-            "avg_price": round(avg_result or 0, 2)
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/flights/batch-save")
-async def batch_save_flights(
-    request: dict,
-    db: Session = Depends(get_db)
-):
-    """批量保存航班数据"""
-    try:
-        flights = request.get('flights', [])
-        source = request.get('source', '12306')
-        saved_count = 0
-
-        for flight_data in flights:
-            flight_result = FlightResult(
-                airline=flight_data.get('airline', ''),
-                flight_number=flight_data.get('flight_number', ''),
-                departure_time=flight_data.get('departure_time', ''),
-                departure_airport=flight_data.get('departure_airport', ''),
-                arrival_time=flight_data.get('arrival_time', ''),
-                arrival_airport=flight_data.get('arrival_airport', ''),
-                price=float(flight_data.get('price', 0)) if flight_data.get('price') else 0.0,
-                currency=flight_data.get('currency', 'CNY'),
-                source=source,
-                raw_data=str(flight_data),
-                notes=flight_data.get('notes', '')
-            )
-
-            db.add(flight_result)
-            saved_count += 1
-
-        db.commit()
-
-        return {
-            "message": f"成功保存 {saved_count} 条航班数据",
-            "saved_count": saved_count
-        }
-
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

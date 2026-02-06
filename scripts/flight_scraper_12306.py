@@ -68,6 +68,7 @@ class FlightScraper12306:
         self.from_city = os.getenv("SCRAPER_FROM_CITY", "")
         self.to_city = os.getenv("SCRAPER_TO_CITY", "")
         self.depart_date = os.getenv("SCRAPER_DEPART_DATE", "")
+        self.airline = (os.getenv("SCRAPER_AIRLINE") or "").strip()
         self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
         self.task_id = None
         
@@ -666,6 +667,17 @@ class FlightScraper12306:
             return ''
         return self._airport_names.get(code, f"{code}机场")
 
+    def _filter_flights_by_airline(self, flights_list):
+        """若指定了航司且非「全部」，则只保留该航司的航班。"""
+        if not flights_list:
+            return flights_list
+        if not self.airline or self.airline.strip() == '全部':
+            return flights_list
+        filtered = [f for f in flights_list if (f.get('airline') or '').strip() == self.airline.strip()]
+        if len(filtered) != len(flights_list):
+            print(f"🔍 航司筛选「{self.airline}」: {len(flights_list)} -> {len(filtered)} 条")
+        return filtered
+
     def extract_terminals_from_page(
             self,
             page_source,
@@ -1082,6 +1094,11 @@ class FlightScraper12306:
             self.driver = connect_device()
             self.wait = WebDriverWait(self.driver, 10)
             
+            # 航司筛选：仅当指定且非「全部」时过滤
+            if self.airline and self.airline != '全部':
+                tprint(f"🔍 指定航司: {self.airline}（仅保存该航司航班）")
+            else:
+                tprint("🔍 未指定航司（全部航司）")
             # 导航并查询（模块化）
             tprint(
                 f"🔍 准备导航: 出发城市={self.from_city}, 到达城市={self.to_city}, 出发日期={self.depart_date}")
@@ -1091,22 +1108,22 @@ class FlightScraper12306:
                 self.to_city,
                 self.depart_date)
 
-            # 提取页面源码（优先使用OCR模式，适用于H5/WebView页面）
+            # 提取页面源码（混合模式：适用于 H5/WebView；解析时优先大模型，OCR 仅作备用）
             try:
                 from page_capture_ocr import smart_scroll_and_capture_hybrid
                 from parser_ocr import parse_ocr_text
-                print("🔍 使用混合模式提取航班信息（优先OCR）...")
+                print("🔍 使用混合模式提取航班信息（解析策略：优先大模型，OCR 仅作备用）...")
                 flights, ocr_text, method_used = smart_scroll_and_capture_hybrid(
                     self.driver, self.output_dir, prefer_ocr=True)
                 print(f"✅ 使用{method_used.upper()}模式识别到 {len(flights)} 个航班")
 
                 if method_used == 'ocr' and ocr_text:
-                    # OCR模式：优先尝试大模型视觉API，失败时使用OCR补充并标记字段来源
+                    # 解析策略：优先调用大模型视觉 API，失败或不可用时才使用 OCR 解析（备用）
                     try:
                         llm_flights = []
                         ocr_flights = []
                         
-                        # 步骤1: 优先尝试大模型视觉API（默认使用Z.ai GLM-4.6V-Flash）
+                        # 步骤1: 优先调用大模型视觉 API（默认 Z.ai GLM-4.6V-Flash）
                         config = _load_scraper_config()
                         llm_api_type = (
                             os.getenv('LLM_API_TYPE')
@@ -1143,35 +1160,35 @@ class FlightScraper12306:
                                 )
                             
                             if llm_api_key:
-                                print(f"🤖 优先使用{llm_api_type.upper()}大模型视觉API解析...")
+                                print(f"🤖 解析优先大模型（{llm_api_type.upper()}），OCR 仅作备用...")
                                 try:
                                     from parser_llm_vision import parse_screenshot_with_llm
                                     llm_flights = parse_screenshot_with_llm(
                                         self.driver, api_type=llm_api_type, api_key=llm_api_key)
                                     if llm_flights:
-                                        print(f"✅ 大模型视觉API解析成功，提取到 {len(llm_flights)} 条航班信息")
+                                        print(f"✅ 大模型解析成功，提取到 {len(llm_flights)} 条航班信息")
                                         llm_success = True
-                                        # 大模型成功时，直接使用大模型结果，不再调用OCR
+                                        # 大模型成功则直接采用，不再调用 OCR
                                         parsed_flights = llm_flights
-                                        print(f"✅ 使用大模型识别结果：{len(llm_flights)} 个航班")
+                                        print(f"✅ 采用大模型结果：{len(llm_flights)} 个航班")
                                     else:
-                                        print(f"⚠️ 大模型视觉API未提取到航班信息，将使用OCR补充")
+                                        print(f"⚠️ 大模型未提取到航班，启用 OCR 备用解析")
                                         llm_success = False
                                 except Exception as e:
-                                    print(f"⚠️ 大模型视觉API解析异常: {e}，将使用OCR补充")
+                                    print(f"⚠️ 大模型解析异常: {e}，启用 OCR 备用解析")
                                     import traceback
                                     traceback.print_exc()
                                     llm_success = False
                             else:
-                                print(f"⚠️ 未配置{llm_api_type.upper()} API密钥，将使用OCR识别")
+                                print(f"⚠️ 未配置{llm_api_type.upper()} API 密钥，使用 OCR 备用解析")
                                 llm_success = False
                         else:
-                            print(f"⚠️ 未配置LLM_API_TYPE或类型不支持，将使用OCR识别")
+                            print(f"⚠️ 未配置或未支持 LLM_API_TYPE，使用 OCR 备用解析")
                             llm_success = False
                         
-                        # 步骤2: 如果大模型未成功，使用OCR解析器
+                        # 步骤2: 大模型未成功时，使用 OCR 备用解析
                         if not llm_success:
-                            print("🔍 使用OCR解析器提取航班信息...")
+                            print("🔍 使用 OCR 备用解析...")
                             try:
                                 # 获取页面源码作为备用（用于提取额外信息）
                                 try:
@@ -1182,22 +1199,23 @@ class FlightScraper12306:
                                 # 使用OCR解析器解析
                                 ocr_flights = parse_ocr_text(ocr_text, page_source_fallback)
                                 if ocr_flights:
-                                    print(f"✅ OCR解析器提取到 {len(ocr_flights)} 条航班信息")
-                                    # OCR结果标记所有字段来源为OCR
+                                    print(f"✅ OCR 备用解析成功，提取到 {len(ocr_flights)} 条航班信息")
+                                    # OCR 结果标记字段来源为 OCR
                                     from merge_llm_ocr_results import merge_llm_ocr_results
                                     parsed_flights = merge_llm_ocr_results([], ocr_flights)
-                                    print(f"✅ 使用OCR识别：{len(ocr_flights)} 个航班（已标记字段来源）")
+                                    print(f"✅ 采用 OCR 备用结果：{len(ocr_flights)} 个航班（已标记字段来源）")
                                 else:
                                     parsed_flights = []
                             except Exception as e:
                                 print(f"⚠️ OCR解析失败: {e}")
                                 parsed_flights = []
                         else:
-                            # 大模型已成功，无需OCR
+                            # 大模型已成功，无需走 OCR 备用
                             ocr_flights = []
 
                         if parsed_flights:
-                            print(f"✅ OCR解析器提取到 {len(parsed_flights)} 条完整航班信息")
+                            print(f"✅ 解析完成，共 {len(parsed_flights)} 条完整航班信息")
+                            parsed_flights = self._filter_flights_by_airline(parsed_flights)
                             # 直接保存解析后的航班数据
                             try:
                                 # 将解析后的航班数据转换为页面源码格式以便保存
@@ -1279,7 +1297,7 @@ class FlightScraper12306:
                                     except Exception as parse_error:
                                         print(f"❌ parser保存也失败: {parse_error}")
                         else:
-                            print("⚠️ OCR解析器未提取到完整信息，创建基本航班记录...")
+                            print("⚠️ 解析未得到完整信息，创建基本航班记录...")
                             # 备用方案：创建基本航班记录
                             if flights:
                                 basic_flights = []
@@ -1296,6 +1314,7 @@ class FlightScraper12306:
                                         'source': '12306',
                                         'status': 'active'
                                     })
+                                basic_flights = self._filter_flights_by_airline(basic_flights)
 
                                 # 直接保存基本记录
                                 api_base = os.getenv(
@@ -1346,6 +1365,7 @@ class FlightScraper12306:
                                     'source': '12306',
                                     'status': 'active'
                                 })
+                            basic_flights = self._filter_flights_by_airline(basic_flights)
 
                             # 直接保存基本记录
                             api_base = os.getenv(
@@ -1399,6 +1419,7 @@ class FlightScraper12306:
                                 'source': '12306',
                                 'status': 'active'
                             })
+                        basic_flights = self._filter_flights_by_airline(basic_flights)
 
                         # 直接保存
                         api_base = os.getenv(

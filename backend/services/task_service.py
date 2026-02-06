@@ -48,14 +48,19 @@ class TaskService:
             task_type: str = 'flight_scraper',
             source: str = '12306',
             config: Optional[Dict] = None,
-            airline: Optional[str] = '深圳航空') -> TaskRecord:
-        """创建任务记录"""
+            airline: Optional[str] = '深圳航空',
+            run_mode: str = 'immediate',
+            schedule_time: Optional[datetime] = None,
+            recurrence_interval_hours: Optional[int] = None,
+            recurrence_end_type: Optional[str] = None,
+            recurrence_max_runs: Optional[int] = None,
+            recurrence_end_at: Optional[datetime] = None,
+            recurrence_run_index: int = 1) -> TaskRecord:
+        """创建任务记录。run_mode: immediate/scheduled/recurring。定时/循环时 status 为 waiting。"""
         try:
-            # 应用新的任务命名规范：出发城市-到达城市-出发日期-查询平台-指定航空公司
             final_task_name = self._generate_task_name(
                 task_name or "", config or {}, source, airline or "")
 
-            # 将config转换为JSON字符串存储
             config_str = None
             if config:
                 try:
@@ -64,20 +69,36 @@ class TaskService:
                     logger.warning(f"Config序列化失败: {e}")
                     config_str = str(config)
 
+            # 定时/循环任务先设为 waiting，由调度器在 schedule_time 到时再执行
+            status = 'running' if run_mode == 'immediate' else 'waiting'
+            current_step = '等待执行' if run_mode == 'immediate' else '排队等待中'
+            if run_mode in ('scheduled', 'recurring'):
+                current_step = '定时等待中' if run_mode == 'scheduled' else '循环等待中'
+                if run_mode == 'recurring' and not schedule_time:
+                    schedule_time = datetime.now(pytz.timezone('Asia/Shanghai')).replace(tzinfo=None)
+
             task_record = TaskRecord(
                 task_name=final_task_name,
                 task_type=task_type,
                 source=source,
                 config=config_str,
                 airline=airline,
-                status='running'
+                status=status,
+                current_step=current_step,
+                run_mode=run_mode or 'immediate',
+                schedule_time=schedule_time,
+                recurrence_interval_hours=recurrence_interval_hours,
+                recurrence_end_type=recurrence_end_type,
+                recurrence_max_runs=recurrence_max_runs,
+                recurrence_end_at=recurrence_end_at,
+                recurrence_run_index=recurrence_run_index,
             )
 
             self.db.add(task_record)
             self.db.commit()
             self.db.refresh(task_record)
 
-            logger.info(f"任务记录已创建: {task_name}")
+            logger.info(f"任务记录已创建: {task_record.task_name} run_mode={run_mode}")
             return task_record
 
         except Exception as e:

@@ -4,7 +4,6 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import FlightResults from './pages/FlightResults';
 import TaskRecords from './pages/TaskRecords';
-import SystemControl from './components/SystemControl';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 
@@ -27,7 +26,6 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="flight-results" element={<FlightResults />} />
               <Route path="task-records" element={<TaskRecords />} />
-              <Route path="system" element={<SystemControl />} />
             </Route>
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>

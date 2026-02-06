@@ -18,9 +18,12 @@ except ImportError:
 
 
 def _load_scraper_config() -> dict:
-    """读取统一配置文件（可选），用于补充环境变量。"""
+    """读取统一配置文件，与 verify_zai_api.py 默认路径一致。"""
     cfg_path = os.getenv("SCRAPER_CONFIG_PATH")
     if not cfg_path:
+        _script_dir = os.path.dirname(os.path.abspath(__file__))
+        cfg_path = os.path.join(_script_dir, "config", "scraper.config.json")
+    if not os.path.isfile(cfg_path):
         return {}
     try:
         with open(cfg_path, "r", encoding="utf-8") as f:
@@ -379,23 +382,22 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
         import requests
         
         if not api_key:
-            api_key = os.getenv('ZAI_API_KEY')
-
+            api_key = os.getenv("ZAI_API_KEY")
         if not api_key:
             config = _load_scraper_config()
-            api_key = config.get('zaiApiKey') or config.get('llmApiKey')
+            raw = config.get("zaiApiKey") or config.get("llmApiKey")
+            api_key = (raw or "").strip()
 
         if not api_key:
-            print("⚠️ 未设置ZAI_API_KEY环境变量")
+            print("⚠️ 未设置 ZAI_API_KEY 或 scraper.config.json 中的 zaiApiKey/llmApiKey")
             return []
-        
-        print(f"🤖 调用Z.ai GLM-4.6V-Flash API...")
-        
+
         url = "https://api.z.ai/api/paas/v4/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "Authorization": "Bearer " + api_key,
         }
+        print("🤖 调用 Z.ai GLM-4.6V-Flash API...")
         
         prompt = """请分析这张航班搜索结果截图，提取每个航班卡片的信息。
 
@@ -447,27 +449,36 @@ def _parse_with_zai(base64_image: str, api_key: Optional[str] = None) -> List[Di
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}"
-                            }
-                        }
-                    ]
+                            "image_url": {"url": f"data:image/png;base64,{base64_image}"},
+                        },
+                    ],
                 }
             ],
-            "max_tokens": 2000
+            "max_tokens": 2000,
+            "stream": False,
         }
         
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        
+        # 429 限流时重试（指数退避），最多 3 次
+        for attempt in range(3):
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            if response.status_code != 429:
+                break
+            if attempt < 2:
+                wait = (2 ** attempt) * 5
+                retry_after = response.headers.get("Retry-After")
+                if retry_after and retry_after.isdigit():
+                    wait = min(int(retry_after), 60)
+                print(f"⚠️ Z.ai 429 限流，{wait}s 后重试 ({attempt + 1}/3)...")
+                import time
+                time.sleep(wait)
+        if response.status_code != 200:
+            response.raise_for_status()
+
         result = response.json()
-        content = result['choices'][0]['message']['content']
+        content = (result.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
         print(f"📝 大模型响应: {content[:200]}...")
         
         # 提取JSON

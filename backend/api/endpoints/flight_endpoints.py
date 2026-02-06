@@ -14,73 +14,36 @@ from schemas.flight_schema import FlightResultResponse, FlightStatisticsResponse
 
 router = APIRouter(prefix="/flights", tags=["flights"])
 
+# ============================================================================
+# 路由顺序说明（FastAPI路由匹配规则）：
+# 1. 具体路径必须在参数路径之前
+# 2. 更长的路径必须在更短的路径之前
+# 3. 相同路径但不同HTTP方法的路由可以共存
+# ============================================================================
 
-@router.get("/", response_model=List[FlightResultResponse])
-async def get_flights(
-    min_price: Optional[float] = Query(None, description="最低价格"),
-    max_price: Optional[float] = Query(None, description="最高价格"),
-    airline: Optional[str] = Query(None, description="航空公司"),
-    flight_number: Optional[str] = Query(None, description="航班号"),
-    departure_city: Optional[str] = Query(None, description="出发城市"),
-    arrival_city: Optional[str] = Query(None, description="到达城市"),
-    task_id: Optional[int] = Query(None, description="任务编号"),
-    sort_by: str = Query("price", description="排序方式: price(价格) 或 time(时间)"),
-    limit: int = Query(50, description="返回数量限制"),
+# ============================================================================
+# 具体路径路由（按路径长度和具体程度排序）
+# ============================================================================
+
+# 1. 具体路径：/by-time-range
+@router.get("/by-time-range")
+async def get_flights_by_time_range(
+    start_time: str = Query(..., description="开始时间 (HH:MM)"),
+    end_time: str = Query(..., description="结束时间 (HH:MM)"),
     db: Session = Depends(get_db)
 ):
-    """获取航班列表，按任务分组并按指定方式排序"""
+    """根据时间范围查询航班"""
     try:
         flight_service = FlightService(db)
+        flights = flight_service.get_flights_by_time_range(
+            start_time, end_time)
 
-        # 强制使用任务分组查询，并应用筛选条件
-        print(
-            f"🔍 强制使用任务分组查询: limit={limit}, sort_by={sort_by}, flight_number={flight_number}, departure_city={departure_city}, arrival_city={arrival_city}, task_id={task_id} (type: {type(task_id).__name__})")
-        
-        # 如果指定了 task_id，确保它是有效的整数
-        if task_id is not None:
-            print(f"🔍 接收到 task_id: {task_id} (type: {type(task_id).__name__})")
-            if not isinstance(task_id, int) or task_id <= 0:
-                print(f"⚠️ 无效的 task_id: {task_id}，返回空列表")
-                return []
-            print(f"✅ task_id 验证通过: {task_id}")
-        else:
-            print("ℹ️ 未指定 task_id，将查询所有活跃的航班（包括有 task_id 和没有 task_id 的）")
-        
-        flights = flight_service.get_flights_grouped_by_task(
-            limit=limit,
-            sort_by=sort_by,
-            flight_number=flight_number,
-            departure_city=departure_city,
-            arrival_city=arrival_city,
-            task_id=task_id
-        )
-
-        # 如果指定了 task_id 但没有结果，返回空列表
-        if task_id is not None and len(flights) == 0:
-            print(f"⚠️ 任务编号 {task_id} 无命中结果，返回空列表")
-        elif task_id is not None:
-            print(f"✅ 任务编号 {task_id} 找到 {len(flights)} 条航班记录")
-        else:
-            print(f"✅ 查询所有有 task_id 的航班，找到 {len(flights)} 条记录")
-        
         return [flight.to_dict() for flight in flights]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/statistics", response_model=FlightStatisticsResponse)
-async def get_flight_statistics(db: Session = Depends(get_db)):
-    """获取航班统计信息"""
-    try:
-        flight_service = FlightService(db)
-        stats = flight_service.get_flight_statistics()
-        return stats
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
+# 2. 具体路径：/by-date
 @router.get("/by-date")
 async def get_flights_by_date(
     date: str = Query(..., description="日期 (YYYY-MM-DD)"),
@@ -99,41 +62,19 @@ async def get_flights_by_date(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/by-time-range")
-async def get_flights_by_time_range(
-    start_time: str = Query(..., description="开始时间 (HH:MM)"),
-    end_time: str = Query(..., description="结束时间 (HH:MM)"),
-    db: Session = Depends(get_db)
-):
-    """根据时间范围查询航班"""
+# 3. 具体路径：/statistics
+@router.get("/statistics", response_model=FlightStatisticsResponse)
+async def get_flight_statistics(db: Session = Depends(get_db)):
+    """获取航班统计信息"""
     try:
         flight_service = FlightService(db)
-        flights = flight_service.get_flights_by_time_range(
-            start_time, end_time)
-
-        return [flight.to_dict() for flight in flights]
+        stats = flight_service.get_flight_statistics()
+        return stats
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete("/cleanup")
-async def cleanup_old_flights(
-    days: int = Query(7, description="保留天数"),
-    db: Session = Depends(get_db)
-):
-    """清理旧航班数据"""
-    try:
-        flight_service = FlightService(db)
-        deleted_count = flight_service.delete_old_flights(days)
-
-        return {"message": f"成功删除 {deleted_count} 条旧航班数据"}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
+# 4. 具体路径：/batch-save
 @router.post("/batch-save")
 async def batch_save_flights(
     request: dict,
@@ -235,4 +176,78 @@ async def batch_save_flights(
 
     except Exception as e:
         print(f"❌ 保存失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# 5. 具体路径：/cleanup
+@router.delete("/cleanup")
+async def cleanup_old_flights(
+    days: int = Query(7, description="保留天数"),
+    db: Session = Depends(get_db)
+):
+    """清理旧航班数据"""
+    try:
+        flight_service = FlightService(db)
+        deleted_count = flight_service.delete_old_flights(days)
+
+        return {"message": f"成功删除 {deleted_count} 条旧航班数据"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# 根路径路由（必须在参数路径之前）
+# ============================================================================
+
+# 6. 根路径：GET /
+@router.get("/", response_model=List[FlightResultResponse])
+async def get_flights(
+    min_price: Optional[float] = Query(None, description="最低价格"),
+    max_price: Optional[float] = Query(None, description="最高价格"),
+    airline: Optional[str] = Query(None, description="航空公司"),
+    flight_number: Optional[str] = Query(None, description="航班号"),
+    departure_city: Optional[str] = Query(None, description="出发城市"),
+    arrival_city: Optional[str] = Query(None, description="到达城市"),
+    task_id: Optional[int] = Query(None, description="任务编号"),
+    sort_by: str = Query("price", description="排序方式: price(价格) 或 time(时间)"),
+    limit: int = Query(50, description="返回数量限制"),
+    db: Session = Depends(get_db)
+):
+    """获取航班列表，按任务分组并按指定方式排序"""
+    try:
+        flight_service = FlightService(db)
+
+        # 强制使用任务分组查询，并应用筛选条件
+        print(
+            f"🔍 强制使用任务分组查询: limit={limit}, sort_by={sort_by}, flight_number={flight_number}, departure_city={departure_city}, arrival_city={arrival_city}, task_id={task_id} (type: {type(task_id).__name__})")
+        
+        # 如果指定了 task_id，确保它是有效的整数
+        if task_id is not None:
+            print(f"🔍 接收到 task_id: {task_id} (type: {type(task_id).__name__})")
+            if not isinstance(task_id, int) or task_id <= 0:
+                print(f"⚠️ 无效的 task_id: {task_id}，返回空列表")
+                return []
+            print(f"✅ task_id 验证通过: {task_id}")
+        else:
+            print("ℹ️ 未指定 task_id，将查询所有活跃的航班（包括有 task_id 和没有 task_id 的）")
+        
+        flights = flight_service.get_flights_grouped_by_task(
+            limit=limit,
+            sort_by=sort_by,
+            flight_number=flight_number,
+            departure_city=departure_city,
+            arrival_city=arrival_city,
+            task_id=task_id
+        )
+
+        # 如果指定了 task_id 但没有结果，返回空列表
+        if task_id is not None and len(flights) == 0:
+            print(f"⚠️ 任务编号 {task_id} 无命中结果，返回空列表")
+        elif task_id is not None:
+            print(f"✅ 任务编号 {task_id} 找到 {len(flights)} 条航班记录")
+        else:
+            print(f"✅ 查询所有有 task_id 的航班，找到 {len(flights)} 条记录")
+        
+        return [flight.to_dict() for flight in flights]
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

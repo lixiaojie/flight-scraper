@@ -1,11 +1,22 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plane, BarChart3, Settings, LogOut, Home } from 'lucide-react';
+import { Plane, BarChart3, LogOut, Home } from 'lucide-react';
 
 const Layout: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      setIsScrolled(scrollTop > 20);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const onLogout = () => {
     logout();
@@ -19,8 +30,14 @@ const Layout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 全局导航 */}
-      <nav className="bg-white shadow-sm border-b">
+      {/* 全局导航 - 滚动时悬浮 */}
+      <nav 
+        className={`bg-white shadow-sm border-b transition-all duration-200 z-50 ${
+          isScrolled 
+            ? 'fixed top-0 left-0 right-0 shadow-md' 
+            : 'sticky top-0'
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
             <div className="flex items-center gap-6">
@@ -55,14 +72,6 @@ const Layout: React.FC = () => {
                 >
                   <Plane className="h-4 w-4 mr-1" /> 航班结果
                 </NavLink>
-                <NavLink
-                  to="/system"
-                  className={({ isActive }) =>
-                    `${linkBase} ${isActive ? linkActive : linkInactive}`
-                  }
-                >
-                  <Settings className="h-4 w-4 mr-1" /> 系统控制
-                </NavLink>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -81,8 +90,8 @@ const Layout: React.FC = () => {
       </nav>
 
       {/* 页面内容 */}
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
+      <main className="max-w-7xl mx-auto py-2 sm:px-6 lg:px-8">
+        <div className="px-4 py-2 sm:px-0">
           <Outlet />
         </div>
       </main>

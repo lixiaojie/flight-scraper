@@ -39,6 +39,16 @@ class TaskRecord(Base):
     config = Column(Text, comment='任务配置')
     airline = Column(String(50), default='深圳航空', comment='指定航空公司')
 
+    # 运行模式：immediate=立即, scheduled=定时, recurring=循环
+    run_mode = Column(String(20), default='immediate', comment='运行模式')
+    schedule_time = Column(DateTime, comment='计划运行时间（定时/循环首次）')
+    # 循环任务
+    recurrence_interval_hours = Column(Integer, comment='循环间隔（小时）')
+    recurrence_end_type = Column(String(20), comment='循环终止方式: count=次数, end_time=截止时间')
+    recurrence_max_runs = Column(Integer, comment='循环最大执行次数')
+    recurrence_end_at = Column(DateTime, comment='循环截止时间')
+    recurrence_run_index = Column(Integer, default=1, comment='当前为第几次执行（从1开始）')
+
     # 额外信息
     notes = Column(Text, comment='备注')
     created_at = Column(DateTime, default=lambda: datetime.now(
@@ -92,6 +102,13 @@ class TaskRecord(Base):
             'source': self.source,
             'config': self.config,
             'airline': self.airline,
+            'run_mode': getattr(self, 'run_mode', None) or 'immediate',
+            'schedule_time': format_datetime(getattr(self, 'schedule_time', None)),
+            'recurrence_interval_hours': getattr(self, 'recurrence_interval_hours', None),
+            'recurrence_end_type': getattr(self, 'recurrence_end_type', None),
+            'recurrence_max_runs': getattr(self, 'recurrence_max_runs', None),
+            'recurrence_end_at': format_datetime(getattr(self, 'recurrence_end_at', None)),
+            'recurrence_run_index': getattr(self, 'recurrence_run_index', None),
             'notes': self.notes,
             'created_at': format_datetime(self.created_at)
         }
