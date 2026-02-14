@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
 import { RefreshCw, Search, Plane, DollarSign } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
@@ -355,7 +355,7 @@ const FlightResults: React.FC = () => {
                   type="number"
                   placeholder="最低"
                   value={searchParams.minPrice}
-                  onChange={(e) => setSearchParams({...searchParams, minPrice: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, minPrice: e.target.value})}
                   className="w-18 h-7 text-xs"
                 />
                 <span className="text-gray-500 text-xs">-</span>
@@ -363,7 +363,7 @@ const FlightResults: React.FC = () => {
                   type="number"
                   placeholder="最高"
                   value={searchParams.maxPrice}
-                  onChange={(e) => setSearchParams({...searchParams, maxPrice: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, maxPrice: e.target.value})}
                   className="w-18 h-7 text-xs"
                 />
               </div>
@@ -373,7 +373,7 @@ const FlightResults: React.FC = () => {
                 <Input
                   placeholder="航空公司"
                   value={searchParams.airline}
-                  onChange={(e) => setSearchParams({...searchParams, airline: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, airline: e.target.value})}
                   className="w-24 h-7 text-xs"
                 />
               </div>
@@ -383,7 +383,7 @@ const FlightResults: React.FC = () => {
                 <Input
                   placeholder="CA1234"
                   value={searchParams.flightNumber}
-                  onChange={(e) => setSearchParams({...searchParams, flightNumber: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, flightNumber: e.target.value})}
                   className="w-24 h-7 text-xs"
                 />
               </div>
@@ -393,7 +393,7 @@ const FlightResults: React.FC = () => {
                 <Input
                   placeholder="城市"
                   value={searchParams.departureCity}
-                  onChange={(e) => setSearchParams({...searchParams, departureCity: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, departureCity: e.target.value})}
                   className="w-20 h-7 text-xs"
                 />
               </div>
@@ -403,7 +403,7 @@ const FlightResults: React.FC = () => {
                 <Input
                   placeholder="城市"
                   value={searchParams.arrivalCity}
-                  onChange={(e) => setSearchParams({...searchParams, arrivalCity: e.target.value})}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, arrivalCity: e.target.value})}
                   className="w-20 h-7 text-xs"
                 />
               </div>
@@ -414,8 +414,8 @@ const FlightResults: React.FC = () => {
                   type="number"
                   placeholder="209"
                   value={searchParams.taskId}
-                  onChange={(e) => setSearchParams({...searchParams, taskId: e.target.value})}
-                  onKeyDown={(e) => {
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchParams({...searchParams, taskId: e.target.value})}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === 'Enter') {
                       handleSearch();
                     }
@@ -817,7 +817,7 @@ const FlightResults: React.FC = () => {
                             ? 'bg-green-600 hover:bg-green-700 text-white'
                             : 'bg-blue-600 hover:bg-blue-700 text-white'
                         }`}
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                           e.stopPropagation();
                           toggleFlightSelection(flight.id);
                         }}

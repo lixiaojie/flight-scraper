@@ -18,6 +18,7 @@ import threading
 import subprocess
 import time
 from datetime import datetime
+import re
 
 # 添加当前目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -103,10 +104,31 @@ def _ensure_task_config_column(db: Session) -> None:
         pass
 
 
+def _ensure_core_tables() -> None:
+    """确保核心业务表存在（兼容历史库/首次启动）。"""
+    from core.database import engine
+    from models.admin import Admin
+    from sqlalchemy import inspect
+
+    required_tables = [
+        TaskRecord.__table__,
+        FlightResult.__table__,
+        Admin.__table__,
+    ]
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    for table in required_tables:
+        if table.name not in existing_tables:
+            table.create(bind=engine, checkfirst=True)
+            print(f"✅ 自动创建缺失数据表: {table.name}")
+
+
 @app.on_event("startup")
 def _startup_ensure_columns():
-    """启动时确保 task_records 表具备定时/循环等列，并启动定时调度线程"""
+    """启动时确保核心表和 task_records 扩展列存在，并启动定时调度线程"""
     try:
+        _ensure_core_tables()
         from core.database import SessionLocal
         db = SessionLocal()
         try:
@@ -186,6 +208,49 @@ def _inject_config_env(env: Dict[str, str], cfg: Optional[Dict[str, Any]], task_
             env['SCRAPER_AIRLINE'] = str(task_airline)
     except Exception:
         pass
+
+
+def _tail_non_empty_lines(text: str, max_lines: int = 40) -> str:
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    return "\n".join(lines[-max_lines:])
+
+
+def _extract_detailed_error(stderr_bytes: bytes, stdout_bytes: bytes) -> str:
+    """从 stderr/stdout 中提取可读的具体错误，优先保留 Traceback。"""
+    ansi_pattern = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+    stderr_text = (stderr_bytes or b"").decode("utf-8", errors="ignore")
+    stdout_text = (stdout_bytes or b"").decode("utf-8", errors="ignore")
+    stderr_text = ansi_pattern.sub("", stderr_text).strip()
+    stdout_text = ansi_pattern.sub("", stdout_text).strip()
+
+    # 1) 优先 stderr 的有效内容
+    stderr_tail = _tail_non_empty_lines(stderr_text, max_lines=50)
+    if stderr_tail:
+        return stderr_tail[:2000]
+
+    # 2) stdout 中查找 traceback
+    if stdout_text:
+        tb_idx = stdout_text.rfind("Traceback (most recent call last):")
+        if tb_idx != -1:
+            return stdout_text[tb_idx:][:2000].strip()
+
+        # 3) 常见错误关键字行（兼容中英文日志）
+        err_lines = []
+        for line in stdout_text.splitlines():
+            lower = line.lower()
+            if any(k in lower for k in ["error", "exception", "failed", "traceback"]) or ("失败" in line):
+                err_lines.append(line.rstrip())
+        if err_lines:
+            return "\n".join(err_lines[-50:])[:2000].strip()
+
+        # 4) 兜底返回 stdout 末尾，避免只有“执行失败”
+        stdout_tail = _tail_non_empty_lines(stdout_text, max_lines=35)
+        if stdout_tail:
+            return stdout_tail[:2000]
+
+    return ""
 
 
 def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
@@ -310,12 +375,9 @@ def _run_scraper_and_update(task_id: int, cfg_json: Optional[str] = None):
         task.duration = int(time.time() - start_ts)
         task.status = "completed"
         task.success = proc.returncode == 0
-        err_text = (
-            stderr.decode(
-                "utf-8",
-                errors="ignore") if stderr else "").strip()
         if not task.success:
-            task.error_message = (err_text[-900:] if err_text else "执行失败")
+            detailed_error = _extract_detailed_error(stderr, stdout)
+            task.error_message = detailed_error if detailed_error else "执行失败（未捕获到详细错误，请查看任务日志）"
         else:
             task.error_message = None
 

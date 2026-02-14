@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { RefreshCw, CheckCircle, XCircle, Clock, BarChart3, ExternalLink, XOctagon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiFetch } from '@/lib/api';
@@ -595,7 +595,7 @@ const TaskRecords: React.FC = () => {
                     
                     {task.error_message && (
                       <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
-                        <p className="text-xs text-red-600 line-clamp-2">
+                        <p className="text-xs text-red-700 whitespace-pre-wrap break-words max-h-40 overflow-auto leading-5">
                           <span className="font-medium">错误信息:</span> {task.error_message}
                         </p>
                       </div>
