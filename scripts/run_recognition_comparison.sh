@@ -54,7 +54,7 @@ echo ""
 echo "📸 图片路径: $IMAGE_PATH"
 echo "🔧 API配置:"
 echo "   API类型: $LLM_API_TYPE"
-echo "   API密钥: ${ZAI_API_KEY:0:20}...${ZAI_API_KEY: -10}"
+echo "   API密钥: 已从运行环境加载（不输出密钥内容）"
 echo ""
 
 # 检查是否在Docker环境中
