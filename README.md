@@ -61,3 +61,11 @@ docker-compose logs -f
 # 重启服务
 docker-compose restart [service_name]
 ```
+
+## API 凭证
+
+仓库中的 `scripts/config/scraper.config.json` 仅保存非敏感默认配置，`llmApiKey` 必须保持为空。Z.ai 功能使用 `ZAI_API_KEY` 环境变量；Docker Compose 将该变量传入后端与抓取服务。请通过本地安全的环境配置或秘密管理器提供值，不要将真实凭证写入源码、提交记录或日志。
+
+如需文件配置，请使用仓库外的私有文件，并通过 `SCRAPER_CONFIG_PATH` 指定。`scripts/verify_zai_api.py` 会实际发送 API 请求；仅在确认使用的凭证与调用授权后手动运行。
+
+如果凭证曾被提交，删除当前值不等于撤销凭证或清除 Git 历史：应在提供方撤销旧凭证，并在批准后单独处理历史副本。
