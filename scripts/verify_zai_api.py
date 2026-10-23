@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 独立验证 Z.ai API 调用（仅用标准库，无需 pip install）
-从 scripts/config/scraper.config.json 读取 llmApiKey（或 zaiApiKey），
+优先从 ZAI_API_KEY 环境变量读取密钥，可选读取本地私有配置，
 发送一次简单的文本 chat completion 以核实 API Key 与限流情况。
 用法: python3 scripts/verify_zai_api.py
 """
@@ -20,14 +20,17 @@ CONFIG_PATH = os.environ.get(
 
 
 def load_api_key():
+    key = os.environ.get("ZAI_API_KEY", "").strip()
+    if key:
+        return key
     if not os.path.isfile(CONFIG_PATH):
-        print("Config not found:", CONFIG_PATH)
+        print("Set ZAI_API_KEY or provide a private config via SCRAPER_CONFIG_PATH")
         sys.exit(1)
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         cfg = json.load(f)
     key = (cfg.get("zaiApiKey") or cfg.get("llmApiKey") or "").strip()
     if not key:
-        print("No zaiApiKey or llmApiKey in config")
+        print("Set ZAI_API_KEY; do not commit credentials to configuration files")
         sys.exit(1)
     return key
 
@@ -35,7 +38,7 @@ def load_api_key():
 def main():
     api_key = load_api_key()
     print("Config:", CONFIG_PATH)
-    print("API Key (masked):", api_key[:8] + "..." + (api_key[-4:] if len(api_key) > 12 else ""))
+    print("API Key: configured (value not logged)")
 
     url = "https://api.z.ai/api/paas/v4/chat/completions"
     payload = {
@@ -79,7 +82,7 @@ def main():
         if e.code == 429:
             print("429 Too Many Requests - 触发限流，请到 Z.ai 控制台查看配额或稍后重试")
         elif e.code == 401:
-            print("401 Unauthorized - API Key 无效或已过期，请核对 scraper.config.json 中的 llmApiKey")
+            print("401 Unauthorized - API Key 无效或已过期，请核对 ZAI_API_KEY 或本地私有配置")
         print("Body:", body[:400])
         sys.exit(2)
     except Exception as e:
